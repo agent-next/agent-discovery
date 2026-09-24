@@ -67,9 +67,10 @@ def test_parse_hmmsearch_domtbl_best_domain_per_target(tmp_path: Path):
         "1 250 5 250 1 250 0.99 -\n"
         "t1 - 300 pfam_retron - 250 1e-20 80.0 0.1 2 2 1e-20 1e-20 80.0 0.1 "
         "1 125 5 130 1 125 0.90 -\n"
-        # t2: env 1..100 over qlen 200 -> coverage 0.5; pfam_dgr -> DGR class
+        # t2: hmm 1..100 over model length 200 -> profile coverage 0.5;
+        # pfam_dgr -> DGR class (coverage uses MODEL columns, not env coords)
         "t2 - 200 pfam_dgr - 200 1e-30 100.0 0.1 1 1 1e-30 1e-30 99.0 0.1 "
-        "1 200 1 200 1 100 0.95 -\n"
+        "1 100 1 200 1 200 0.95 -\n"
         "malformed line\n"
         "\n"
     )
@@ -90,14 +91,23 @@ def test_passes_filters_core_coverage_boundary():
 
 
 def test_passes_filters_weak_hit_rules():
-    # paper: weak = bitscore <25 OR coverage <0.35 OR no YxDD motif
-    assert f02.passes_filters(_hit(bitscore=24.9)) is False
-    assert f02.passes_filters(_hit(bitscore=25.0)) is True
-    assert f02.is_weak_hit(_hit(coverage=0.349), f02.Thresholds()) is True
-    assert f02.is_weak_hit(_hit(coverage=0.35), f02.Thresholds()) is False
-    assert f02.passes_filters(_hit(has_yxdd=False)) is False
-    assert f02.passes_filters(_hit(has_yxdd=None)) is True  # untested = pass
-    assert f02.passes_filters(_hit(has_yxdd=True)) is True
+    # paper Methods p.29: weak = bitscore <25 AND coverage <0.35 AND no YxDD,
+    # jointly (grok review 2026-09-24: an OR reading discards real candidates)
+    weak = dict(bitscore=24.9, coverage=0.30, has_yxdd=False)
+    assert f02.is_weak_hit(_hit(**weak), f02.Thresholds()) is True
+    # any single condition alone is NOT weak
+    assert f02.is_weak_hit(_hit(bitscore=24.9, coverage=1.0, has_yxdd=True),
+                           f02.Thresholds()) is False
+    assert f02.is_weak_hit(_hit(bitscore=90.0, coverage=0.10, has_yxdd=False),
+                           f02.Thresholds()) is False
+    assert f02.is_weak_hit(_hit(bitscore=90.0, coverage=1.0, has_yxdd=False),
+                           f02.Thresholds()) is False
+    # boundary: bitscore exactly 25 is not < 25
+    assert f02.is_weak_hit(_hit(bitscore=25.0, coverage=0.30, has_yxdd=False),
+                           f02.Thresholds()) is False
+    # and weak hits do not survive the filter set
+    assert f02.passes_filters(_hit(**weak)) is False
+    assert f02.passes_filters(_hit(bitscore=24.9, coverage=1.0, has_yxdd=True)) is True
 
 
 def test_passes_filters_class_min_length():

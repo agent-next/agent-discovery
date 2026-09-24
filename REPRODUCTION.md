@@ -20,7 +20,7 @@ transcriptases with tandem repeat arrays". Facts ledger: `docs/paper-notes.md`.
 | 11 | ~140 skills; 7 survey guides named | Methods p.28 | `skills/` (12 guides; full 140-library out of scope) | Devin PR (GAP-2) |
 | 12 | Campaign accounting: sessions/roles, agent-hours, token classes | Methods p.30 | `accounting.SessionLedger` | done |
 | 13 | Report tournament: 342 games, rubric weights, soundness auto-lose, BTL | Methods p.30 | `tournament.py` | done |
-| 14 | RT census: 98 HMMs → 203,381 → 198,290 clusters → 9 classes | Methods p.29 | `pipeline/census/01–04` | Devin PR |
+| 14 | RT census: 52 HMMs → 203,381 → 198,290 clusters → 9 classes | Methods p.29 | `pipeline/census/01–04` | Devin PR |
 | 15 | Neighborhood sampling: 7,308 anchors → 10,983 loci | Methods p.29-30 | `pipeline/census/05` | Devin PR |
 | 16 | Partner scoring: 3 filters, controls, 3,564 → 16 | Methods p.30 | `pipeline/census/06` | Devin PR |
 | 17 | ART family definition: QQM14740.1 → 95 members | Methods p.31-32 | `pipeline/art_family/family_definition.sh` | Devin PR |

@@ -128,6 +128,20 @@ class ClaudeCodeBackend:
 
         payload = json.loads(proc.stdout)
         usage = payload.get("usage", {})
+        text = payload.get("result", "")
+        verdict = verdict_notes = None
+        if spec.role == "supervisor":
+            # The supervisor system prompt requires a literal VERDICT: line.
+            # Missing/unparseable verdict returns None — the orchestrator fails
+            # toward revision (grok review 2026-09-24).
+            import re
+
+            m = re.search(r"VERDICT:\s*(accept|revise)\b", text, re.IGNORECASE)
+            if m:
+                verdict = m.group(1).lower()
+                verdict_notes = text[m.end():].strip()[:2000] or None
+        proposed = re.findall(r"PROPOSE_FOLLOWUP:\s*(.+)", text) \
+            if spec.role == "worker" else []
         return BackendOutput(
             result=SessionResult(
                 role=spec.role,
@@ -138,4 +152,7 @@ class ClaudeCodeBackend:
                 cache_write_tokens=int(usage.get("cache_creation_input_tokens", 0)),
                 transcript_path=payload.get("transcript_path"),
             ),
+            proposed_followups=[p.strip() for p in proposed],
+            verdict=verdict,
+            verdict_notes=verdict_notes,
         )

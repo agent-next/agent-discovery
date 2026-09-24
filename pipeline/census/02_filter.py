@@ -35,7 +35,7 @@ WEAK_COVERAGE = 0.35
 YXDD_MOTIF = re.compile(r"Y.DD")
 
 # paper: class-specific minimum length is 225-346 aa.
-# GAP: the paper gives the 225-346 aa band but not the per-class values; the
+# PLACEHOLDER-CLASS-SPECIFIC: the paper gives only the 225-346 aa band, not per-
 # placeholders below pin every class to the band floor (225 aa) until the real
 # per-class table is recovered.
 CLASS_MIN_LENGTH_AA: dict[str, int] = {
@@ -122,15 +122,18 @@ def parse_hmmsearch_domtbl(path: str | Path) -> Iterator[Hit]:
             f = line.split()
             if len(f) < 22:
                 continue
-            qlen = int(f[5])
-            env_from, env_to = int(f[19]), int(f[20])
+            qlen = int(f[5])  # HMM model length (hmmsearch query)
+            hmm_from, hmm_to = int(f[15]), int(f[16])
             hit = Hit(
                 target=f[0],
                 tlen=int(f[2]),
                 query=f[3],
                 qlen=qlen,
                 bitscore=float(f[13]),
-                coverage=(env_to - env_from + 1) / qlen,
+                # profile coverage = aligned model columns / model length
+                # (grok review 2026-09-24: envelope cols 20/21 are sequence
+                # coordinates, not profile coordinates)
+                coverage=(hmm_to - hmm_from + 1) / qlen,
                 rt_class=classify_profile(f[3]),
             )
             prev = best.get(hit.target)
@@ -140,12 +143,14 @@ def parse_hmmsearch_domtbl(path: str | Path) -> Iterator[Hit]:
 
 
 def is_weak_hit(hit: Hit, thresholds: Thresholds) -> bool:
-    """paper: weak hits have bitscore < 25, coverage < 0.35, or no YxDD motif."""
-    if hit.bitscore < thresholds.weak_bitscore:
+    """paper (Methods p.29): weak hits = bit score < 25 AND coverage < 0.35 AND
+    no YxDD catalytic motif — all three simultaneously (grok review 2026-09-24:
+    the OR reading discarded candidates the paper keeps)."""
+    if (hit.bitscore < thresholds.weak_bitscore
+            and hit.coverage < thresholds.weak_coverage
+            and hit.has_yxdd is False):
         return True
-    if hit.coverage < thresholds.weak_coverage:
-        return True
-    return hit.has_yxdd is False
+    return False
 
 
 def passes_filters(hit: Hit, thresholds: Thresholds | None = None) -> bool:
@@ -235,3 +240,7 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def weak_hit_note() -> str:
+    return ("weak = low score AND low coverage AND no YxDD, jointly")

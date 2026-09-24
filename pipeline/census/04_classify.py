@@ -32,7 +32,8 @@ TIER1_PROFILE_COUNT = 38
 TIER1_MIN_MARGIN_BITS = 10.0
 
 # GAP: the paper states class-specific bitscore floors for tier 1 but does not
-# list them; placeholders below (uniform 100 bits) until the real table is
+# PLACEHOLDER-CLASS-SPECIFIC (paper gives no per-class floors); uniform 100 bits
+# until calibrated against the paper's myRT cross-validation - do NOT treat as
 # recovered.
 TIER1_BITSCORE_FLOORS: dict[str, float] = {
     "retron": 100.0,

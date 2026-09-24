@@ -150,7 +150,8 @@ def test_build_subset_flags():
             "--approx-id 90",  # cascade: 90% identity
             "--approx-id 70",  # cascade: 70% identity
             "--approx-id 50",  # cascade: 50% identity
-            "--coverage 80",   # >=80% coverage
+            "--member-cover 0.8",  # >=80% coverage of the shorter member
+            "--mutual-cover 0.8",  # 50% step: >=80% mutual coverage
             "80th",            # rep = closest to 80th pct of cluster length
         ],
     )

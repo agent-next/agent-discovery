@@ -165,8 +165,11 @@ def kmer_scan(locus: str, upstream: str, rng: random.Random,
               word_len: int = REPEAT_LEN_SCAN) -> ScanCall:
     """Paper step 1. ``upstream`` is the window 5' of the RT start codon (already
     oriented so the RT is downstream); fewer than MIN_UPSTREAM_FOR_ASSESSMENT nt
-    upstream with no array yields status "not_assessed"."""
-    window = upstream[:MAX_UPSTREAM_SCAN].upper()
+    upstream with no array yields status "not_assessed". The scanned window is the
+    3,000 nt immediately adjacent to the RT (grok review 2026-09-24: the prefix
+    would scan the far end when upstream exceeds the cap)."""
+    window = upstream[-MAX_UPSTREAM_SCAN:].upper() if len(upstream) > MAX_UPSTREAM_SCAN \
+        else upstream.upper()
     best = ScanCall(locus=locus, status="no_array")
     for seed in _most_frequent_words(window, word_len, SEEDS_PER_WINDOW):
         positions = _copies_of(window, seed, COPY_MISMATCHES)
@@ -328,35 +331,48 @@ def delimit_array(locus: str, upstream: str, rng: random.Random) -> DelimitedArr
     """Paper step 2. Tests every recurring 10-nt word as seed; retains the longest
     near-constant-spaced chain whose score beats the best chain in 200 (or 2,000 on
     weak margins) 50-nt-block shuffles, in both 3,000- and 6,000-nt windows."""
-    window6 = upstream[:MAX_UPSTREAM_DELIMIT].upper()
-    window3 = window6[:MAX_UPSTREAM_SCAN]
+    window6 = upstream[-MAX_UPSTREAM_DELIMIT:].upper() if len(upstream) > MAX_UPSTREAM_DELIMIT \
+        else upstream.upper()
+    window3 = window6[-MAX_UPSTREAM_SCAN:]
     counts: dict[str, int] = {}
     for i in range(len(window6) - SEED_LEN_DELIMIT + 1):
         w = window6[i:i + SEED_LEN_DELIMIT]
         counts[w] = counts.get(w, 0) + 1
     seeds = [w for w, c in counts.items() if c >= 2]  # INTERPRETED: "recurring" = >=2
 
-    best: tuple[float, list[int], int] | None = None  # (score, chain, shuffles_used)
+    # Collect every candidate chain from every recurring seed; the paper retains
+    # the LONGEST near-constant-spaced chain "for scoring" (Methods p.32) — ties
+    # resolved by the higher information score (INTERPRETED: unspecified).
+    candidates: list[list[int]] = []
     for seed in seeds:
         positions = _copies_of(window6, seed, DELIMIT_MISMATCHES)
-        for chain in _chains(positions):
-            score, _ = _chain_score(window6, chain, SEED_LEN_DELIMIT)
-            if best is None or score > best[0]:
-                best = (score, chain, N_SHUFFLES_DELIMIT)
-    if best is None or best[0] <= 0:
+        candidates.extend(_chains(positions))
+    if not candidates:
         return None
+    chain = max(candidates, key=lambda c: (len(c),
+                                           _chain_score(window6, c, SEED_LEN_DELIMIT)[0]))
+    score, _ = _chain_score(window6, chain, SEED_LEN_DELIMIT)
+    if score <= 0:
+        return None
+    shuffles_used = N_SHUFFLES_DELIMIT
 
     def best_shuffle_score(window: str, n: int) -> float:
+        """Null = each shuffled region's own best chain: seed discovery, chaining,
+        and scoring are redone inside every shuffle (grok review 2026-09-24)."""
         top = 0.0
         for shuf in block_shuffles(window, n, 50, rng):
-            for seed in seeds:
+            w_counts: dict[str, int] = {}
+            for i in range(len(shuf) - SEED_LEN_DELIMIT + 1):
+                word = shuf[i:i + SEED_LEN_DELIMIT]
+                w_counts[word] = w_counts.get(word, 0) + 1
+            for seed in (w for w, c in w_counts.items() if c >= 2):
                 positions = _copies_of(shuf, seed, DELIMIT_MISMATCHES)
-                for chain in _chains(positions):
-                    score, _ = _chain_score(shuf, chain, SEED_LEN_DELIMIT)
-                    top = max(top, score)
+                for cand in _chains(positions):
+                    s_val, _ = _chain_score(shuf, cand, SEED_LEN_DELIMIT)
+                    top = max(top, s_val)
         return top
 
-    score, chain, shuffles_used = best
+    score, chain, shuffles_used = score, chain, shuffles_used
     base_max3 = best_shuffle_score(window3, N_SHUFFLES_DELIMIT)
     base_max6 = best_shuffle_score(window6, N_SHUFFLES_DELIMIT)
     beat = score > base_max3 and score > base_max6
@@ -418,7 +434,7 @@ def pwm_extend(array: DelimitedArray, upstream: str, rng: random.Random,
     """'A position weight matrix of the repeat was then built, and matches that
     scored above the maximum of 200 shuffled regions were counted as copies'
     (Methods p.32). Returns a new DelimitedArray with extended copy list."""
-    window = upstream[:MAX_UPSTREAM_DELIMIT].upper()
+    window = upstream[-MAX_UPSTREAM_DELIMIT:].upper()
     background = {b: window.count(b) / max(1, len(window)) for b in BASES}
     w = len(array.repeat)
     aligned = [window[p:p + w] for p in array.copy_starts if p + w <= len(window)]
@@ -455,11 +471,12 @@ def cross_scan(arrays: list[DelimitedArray], upstreams: dict[str, str],
     array to group arrays that share a repeat' (Methods p.32).
 
     Returns locus -> set of other loci whose PWM matches that locus's upstream
-    region above the shuffled threshold (symmetrized).
+    region above the shuffled threshold. Edges are symmetrized by union: A in
+    groups[B] iff B in groups[A].
     """
     pwms: dict[str, list[dict[str, float]]] = {}
     for arr in arrays:
-        window = upstreams.get(arr.locus, "")[:MAX_UPSTREAM_DELIMIT].upper()
+        window = upstreams.get(arr.locus, "")[-MAX_UPSTREAM_DELIMIT:].upper()
         aligned = [window[p:p + len(arr.repeat)] for p in arr.copy_starts
                    if p + len(arr.repeat) <= len(window)]
         if aligned:
@@ -468,7 +485,7 @@ def cross_scan(arrays: list[DelimitedArray], upstreams: dict[str, str],
                                          for b in BASES})
     groups: dict[str, set[str]] = {a.locus: set() for a in arrays}
     for arr in arrays:
-        window = upstreams.get(arr.locus, "")[:MAX_UPSTREAM_DELIMIT].upper()
+        window = upstreams.get(arr.locus, "")[-MAX_UPSTREAM_DELIMIT:].upper()
         if not window:
             continue
         for other_locus, pwm in pwms.items():
@@ -482,4 +499,27 @@ def cross_scan(arrays: list[DelimitedArray], upstreams: dict[str, str],
                         for i in range(len(window) - w + 1)), default=0.0)
             if best > threshold:
                 groups[arr.locus].add(other_locus)
+                groups[other_locus].add(arr.locus)  # symmetrize by union
     return groups
+
+
+def exact_word_scan(locus: str, upstream: str, word_len: int = 12) -> ScanCall:
+    """Paper's second scan setting (Methods p.32): an exact word (default 12 nt)
+    recurring three times at regular spacing (100-450 nt, start to start) calls an
+    array — no shuffle control, no mismatch allowance. Used for the one R=3 locus
+    that did not beat its shuffles and for phylogeny tips."""
+    window = upstream[-MAX_UPSTREAM_SCAN:].upper()
+    counts: dict[str, list[int]] = {}
+    for i in range(len(window) - word_len + 1):
+        counts.setdefault(window[i:i + word_len], []).append(i)
+    best: ScanCall | None = None
+    for word, positions in counts.items():
+        runs = _regular_runs(positions)
+        if not runs:
+            continue
+        run = max(runs, key=len)
+        if len(run) >= MIN_RUN and (best is None or len(run) > best.R):
+            best = ScanCall(locus=locus, status="array", R=len(run), seed=word,
+                            copies=run,
+                            note="exact-word rule, no shuffle control")
+    return best or ScanCall(locus=locus, status="no_array")

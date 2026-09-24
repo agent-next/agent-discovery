@@ -6,7 +6,7 @@ group II-like 827 (exhaustive); DGR 1,000 and CRISPR-assoc 1,000 (random);
 UG 700 (proportional to clade size, with clades of fewer than 30 clusters
 taken whole); retron 1,000 random + 1 control and group II intron 500 random
 (every retron and group II intron cluster carried a single clade label, so
-these two classes were sampled at random); novel 60/clade x 29 clades;
+these two classes were sampled at random); novel 60/clade x 16 clades;
 unplaced 440 largest lineages + 200 random singletons.
 paper: up to 3 loci per anchor from each of Logan / ENA / JGI / NCBI with
 10 kb flanks. Loci were recovered for 7,238 of the 7,308 anchors (10,983 loci
@@ -14,9 +14,9 @@ with 79,680 coding sequences); 85.9% of windows were truncated by a contig end.
 paper: at these caps the worker estimated a family had to occur at 0.3-0.6%
 of a class's loci to reach three independent occurrences.
 
-GAP: the stated quotas sum to 8,088 (incl. the retron control), not the
-reported 7,308; quotas are kept as stated and TOTAL_ANCHORS is the paper's
-reported figure for cross-checking.
+Cross-check: 680+827+1,000+1,000+700+1,001(retron incl. control)+500
++960(novel 60x16)+440+200 = 7,308 = the paper's anchor total (grok review
+2026-09-24 caught a page-number misread that had made this 8,088).
 
 Sampling is seeded (deterministic). Stdlib only.
 """
@@ -47,7 +47,7 @@ QUOTA_UG_PROPORTIONAL = 700  # paper: UG 700, proportional to clade size
 UG_TAKE_WHOLE_BELOW = 30  # paper: UG clades of fewer than 30 clusters taken whole
 RETRON_CONTROLS = 1  # paper: retron random 1,000 + 1 control
 NOVEL_PER_CLADE = 60  # paper: novel 60/clade
-NOVEL_CLADES = 29  # paper: x 29 clades
+NOVEL_CLADES = 16  # paper: "60 clusters from each of its 16 clades" (Methods p.29-30;
 UNPLACED_LARGEST_LINEAGES = 440  # paper: 440 largest lineages
 UNPLACED_SINGLETONS = 200  # paper: 200 random singletons
 
@@ -131,7 +131,7 @@ def sample_proportional(
 def sample_per_clade(
     clades: Mapping[str, Sequence[Anchor]], per_clade: int, rng: random.Random
 ) -> list[Anchor]:
-    """paper: novel 60 anchors per clade (29 clades)."""
+    """paper: novel 60 anchors per clade (16 clades)."""
     out: list[Anchor] = []
     for members in clades.values():
         out.extend(rng.sample(list(members), min(per_clade, len(members))))

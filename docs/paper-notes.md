@@ -62,8 +62,9 @@ or press coverage.
   (UniProt + nr at 90%).
 
 ## RT census (Methods "RT census by the agents" p.29)
-- 98 HMMs: 6 Pfam (RVT_1, RVT_2, RVT_3, RVT_N, GIIM, Intron_maturas2) + 45 myRT
-  class profiles + 1 Toro profile.
+- 52 HMMs: 6 Pfam (RVT_1, RVT_2, RVT_3, RVT_N, GIIM, Intron_maturas2) + 45 myRT
+  class profiles + 1 Toro profile = 52 (grok review 2026-09-24: 6+45+1=52; the
+  separate 38 lineage HMMs are tier-1 classification, not the search panel).
 - hmmsearch --noali -Z 8 --domZ 8 -E 0.01 --domE 0.01 → 3,391,714 candidates.
 - Retained: complete RT core (profile coverage ≥0.75), class-specific min length
   225–346. Discarded: fragments n=2,016,377; weak n=1,171,334 (bitscore<25,
@@ -84,7 +85,7 @@ or press coverage.
 ## Neighborhood census (Methods "Sampling of RT neighborhoods" p.29-30)
 - 7,308 anchors: Abi 680 + group II-like 827 exhaustive; DGR 1,000 and CRISPR-assoc
   1,000 random; UG 700 proportional to clade size; retron 1,000 random + 1 control;
-  group II intron 500; novel 60/clade × 29 clades; unplaced 440 largest lineages +
+  group II intron 500; novel 60/clade × 16 clades; unplaced 440 largest lineages +
   200 random singletons. Caps defined by the census worker.
 - Up to 3 loci per anchor from each of Logan/ENA/JGI/NCBI, 10 kb flanks.
 - 7,238/7,308 anchors recovered → 10,983 loci, 79,680 CDS; 85.9% truncated by contig end.

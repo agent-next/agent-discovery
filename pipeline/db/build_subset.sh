@@ -146,10 +146,11 @@ fi
 # coverage of the shorter sequence (cascaded on representatives), then 50%
 # identity with >=80% mutual coverage.
 # GAP: the paper does not give the DIAMOND version or exact coverage flag
-# spelling; --cov-mode 5 = shorter-sequence coverage and --cov-mode 0 = mutual
+# `diamond cluster` coverage flags are --member-cover / --mutual-cover (fractions);
+# --cov-mode is not a diamond cluster option (grok review 2026-09-24)
 # coverage follow the mmseqs convention -- verify against the installed release.
 run "diamond makedb --in \"$OUT/proteins_filt.faa\" -d \"$OUT/proteins_filt\""
-run "diamond cluster -d \"$OUT/proteins_filt.dmnd\" -o \"$OUT/clusters90.tsv\" --approx-id 90 --coverage 80 --cov-mode 5"
+run "diamond cluster -d \"$OUT/proteins_filt.dmnd\" -o \"$OUT/clusters90.tsv\" --approx-id 90 --member-cover 0.8"
 if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "python3 - $OUT/clusters90.tsv $OUT/proteins_filt.faa $OUT/reps90.ids  # rep = member closest to 80th pct of length"
 else
@@ -157,7 +158,7 @@ else
 fi
 run "seqkit grep -f \"$OUT/reps90.ids\" \"$OUT/proteins_filt.faa\" > \"$OUT/reps90.faa\""
 run "diamond makedb --in \"$OUT/reps90.faa\" -d \"$OUT/reps90\""
-run "diamond cluster -d \"$OUT/reps90.dmnd\" -o \"$OUT/clusters70.tsv\" --approx-id 70 --coverage 80 --cov-mode 5"
+run "diamond cluster -d \"$OUT/reps90.dmnd\" -o \"$OUT/clusters70.tsv\" --approx-id 70 --member-cover 0.8"
 if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "python3 - $OUT/clusters70.tsv $OUT/reps90.faa $OUT/reps70.ids  # rep = member closest to 80th pct of length"
 else
@@ -165,7 +166,7 @@ else
 fi
 run "seqkit grep -f \"$OUT/reps70.ids\" \"$OUT/reps90.faa\" > \"$OUT/reps70.faa\""
 run "diamond makedb --in \"$OUT/reps70.faa\" -d \"$OUT/reps70\""
-run "diamond cluster -d \"$OUT/reps70.dmnd\" -o \"$OUT/clusters50.tsv\" --approx-id 50 --coverage 80 --cov-mode 0"
+run "diamond cluster -d \"$OUT/reps70.dmnd\" -o \"$OUT/clusters50.tsv\" --approx-id 50 --mutual-cover 0.8"
 if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "python3 - $OUT/clusters50.tsv $OUT/reps70.faa $OUT/subset_reps.ids  # final subset representatives (80th pct of length)"
 else
