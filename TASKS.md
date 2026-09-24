@@ -4,7 +4,7 @@ Goal: max reproduction of Yoon et al. 2026 (ART harness). Push every layer until
 real blocker is hit; every blocker gets a WHY/HOW/WHAT entry in REPRODUCTION.md §Gaps.
 
 ## Done
-- [x] Repo scaffold, packaging, CI (`main` @ 41e2f44, private, agent-next/art-harness)
+- [x] Repo scaffold, packaging, CI (`main` @ 41e2f44, private, agent-next/agent-discovery)
 - [x] Harness core: records/knowledge/roles/orchestrator/tournament/accounting/backends (23 tests)
 - [x] `arrays.py`: paper-exact k-mer scan + delimitation (Methods p.32), tested on synthetic ART arrays
 - [x] Paper verified locally: `/tmp/art-paper/art-paper.pdf` (40 pp; main + Methods + Supp Figs 1–7; NO Supp Notes in file)
