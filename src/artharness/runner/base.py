@@ -20,8 +20,15 @@ import os
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Protocol
 
 from ..accounting import SessionResult
+
+
+class SessionBackend(Protocol):
+    """Anything that can run a role session: ScriptedBackend, ClaudeCodeBackend."""
+
+    def run(self, spec: SessionSpec) -> BackendOutput: ...
 
 
 @dataclass
@@ -48,18 +55,26 @@ class ScriptedBackend:
     """Offline backend. ``scenario`` maps (role, task_id) -> BackendOutput.
 
     A default acceptance flow is synthesized when a key is missing, so a dry-run
-    campaign can complete without per-task scripting.
+    campaign can complete without per-task scripting. With ``write_outputs=True``
+    (the default) worker sessions also write plan.md/summary.md into the task
+    directory, simulating the completion check the orchestrator applies to real
+    worker output.
     """
 
     def __init__(self, scenario: dict | None = None, tokens_per_session: int = 1000,
-                 duration_s: float = 60.0):
+                 duration_s: float = 60.0, write_outputs: bool = True):
         self.scenario = scenario or {}
         self.tokens_per_session = tokens_per_session
         self.duration_s = duration_s
+        self.write_outputs = write_outputs
         self.calls: list[SessionSpec] = []
 
     def run(self, spec: SessionSpec) -> BackendOutput:
         self.calls.append(spec)
+        if spec.role == "worker" and self.write_outputs and spec.workdir.exists():
+            if not (spec.workdir / "summary.md").exists():
+                (spec.workdir / "plan.md").write_text("# plan (scripted)\n")
+                (spec.workdir / "summary.md").write_text("# summary (scripted)\n")
         key = (spec.role, spec.task_id)
         out = self.scenario.get(key)
         if out is None:

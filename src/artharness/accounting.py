@@ -49,8 +49,8 @@ class SessionLedger:
     def sessions(self) -> list[SessionResult]:
         if not self.path.exists():
             return []
-        return [SessionResult.from_jsonl(l) for l in
-                self.path.read_text().splitlines() if l.strip()]
+        return [SessionResult.from_jsonl(line) for line in
+                self.path.read_text().splitlines() if line.strip()]
 
     def summary(self) -> dict:
         """Campaign totals in the paper's accounting format."""

@@ -20,10 +20,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .accounting import SessionResult
 from .knowledge import KnowledgeBase
 from .records import RecordStore, TaskRecord
-from .runner.base import BackendOutput, SessionSpec, SessionBackend  # noqa: F401
+from .runner.base import BackendOutput, SessionBackend, SessionSpec  # noqa: F401
 
 WORKER_SYSTEM = """\
 You are the worker agent of a genome-mining research campaign.

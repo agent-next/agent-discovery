@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import math
 import random
-from collections import defaultdict
 from dataclasses import dataclass
 from itertools import permutations
 
@@ -50,7 +49,7 @@ def run_tournament(reports: dict[str, str], judge: JudgeFn,
     cfg = cfg or CampaignConfig()
     rng = rng or random.Random(0)
     names = sorted(reports)
-    wins: dict[str, int] = defaultdict(int)
+    wins: dict[str, int] = {n: 0 for n in names}  # every report's win count exists
     games = 0
     for a, b in permutations(names, 2):
         # anonymize by shuffling opaque labels per game
@@ -94,12 +93,15 @@ def bradley_terry(wins: dict[str, int], names: list[str],
             for j in range(len(names)):
                 if i == j:
                     continue
-                denom += n_ij / (p[i] + p[j])
+                denom += n_ij / (max(p[i], 1e-9) + max(p[j], 1e-9))
             if denom > 0:
                 new[i] = w[i] / denom
-        delta = max(abs(a - b) for a, b in zip(p, new))
+        delta = max(abs(a - b) for a, b in zip(p, new, strict=False))
         s = sum(new)
-        p = [x / s * len(names) for x in new]  # normalize geometric-mean=1
+        if s == 0:  # no wins anywhere: uniform strengths
+            return {n: 1.0 for n in names}
+        p = [max(x / s * len(names), 1e-6) for x in new]  # floor keeps zeros from
+        # zeroing the denominators of future iterations
         if delta < tol:
             break
     return {n: p[idx[n]] for n in names}

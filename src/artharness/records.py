@@ -22,11 +22,11 @@ from __future__ import annotations
 import json
 import subprocess
 from dataclasses import asdict, dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     OPEN = "open"  # brief written, not yet dispatched
     PLANNED = "planned"  # worker wrote a plan
     EXECUTED = "executed"  # worker submitted summary + artifacts
@@ -38,7 +38,7 @@ class TaskStatus(str, Enum):
     STALLED = "stalled"  # exceeded revision/gate limits
 
 
-class TaskOrigin(str, Enum):
+class TaskOrigin(StrEnum):
     SEED = "seed"  # seeded from a stage of the research brief (5 in the paper)
     DEEP_DIVE = "deep_dive"  # seeded from a promoted candidate family (16 in the paper)
     FOLLOW_UP = "follow_up"  # proposed by an agent during work (98 in the paper)

@@ -21,9 +21,9 @@ from __future__ import annotations
 
 import threading
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from .accounting import SessionLedger
 from .config import CampaignConfig

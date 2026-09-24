@@ -1,0 +1,375 @@
+"""Repeat-array detection and delimitation — paper Methods p.32, parameter-exact.
+
+Step 1 (k-mer scan, "Repeat-array detection"): search up to 3,000 nt upstream of the
+RT start codon for short words recurring >=3 times at regular spacing (100-450 nt,
+start to start). For the 95 ART members: the 20 most frequent 14-nt words of the
+window serve as seeds (>=3 distinct bases, no homopolymer of six or more). Copies are
+non-overlapping windows within two mismatches of a seed. An array is called when the
+longest run of regularly spaced copies, R, is >=3 and exceeds the longest such run in
+100 mononucleotide shuffles of the window. No array is called when a longer run of
+copies spaced under 100 nt apart is present. R is the copy number. Loci with <1,500 nt
+of contig upstream and no array are "not_assessed".
+
+Step 2 (delimitation, "Array delimitation and measurement"): rescan up to 6,000 nt
+upstream with every recurring 10-nt word as a seed; copies at <=1 mismatch; longest
+chain at near-constant spacing (60-600 nt, 30% tolerance, single skipped copies
+allowed); score = (copies - 1) x information content of the conserved block relative
+to the region's base composition; retain when the score exceeds the best chain score
+in each of 200 shuffles (50-nt block permutation, preserving local composition), in
+both a 3,000-nt and a 6,000-nt window; chains scoring <2x the best shuffle are
+retested against 2,000 shuffles.
+
+INTERPRETED marks the few points where the paper's wording leaves an implementation
+choice open; each carries its reading inline.
+"""
+
+from __future__ import annotations
+
+import random
+from dataclasses import dataclass, field
+
+REPEAT_LEN_SCAN = 14  # 14-nt seed words
+SEEDS_PER_WINDOW = 20
+COPY_MISMATCHES = 2
+MIN_SPACING, MAX_SPACING = 100, 450
+MIN_RUN = 3
+N_SHUFFLES_SCAN = 100
+MIN_DISTINCT_BASES = 3
+HOMOPOLYMER = 6
+MIN_UPSTREAM_FOR_ASSESSMENT = 1_500
+MAX_UPSTREAM_SCAN = 3_000
+MAX_UPSTREAM_DELIMIT = 6_000
+SEED_LEN_DELIMIT = 10
+DELIMIT_MISMATCHES = 1
+DELIMIT_SPACING = (60, 600)
+SPACING_TOLERANCE = 0.30
+N_SHUFFLES_DELIMIT = 200
+N_SHUFFLES_DELIMIT_RETEST = 2_000
+CONSENSUS_FRACTION = 0.80
+
+BASES = "ACGT"
+_COMPLEMENT = str.maketrans("ACGTacgt", "TGCAtgca")
+
+
+def revcomp(seq: str) -> str:
+    return seq.translate(_COMPLEMENT)[::-1]
+
+
+def hamming_within(a: str, b: str, max_mm: int) -> bool:
+    """True when a and b differ in at most max_mm positions (early exit)."""
+    mm = 0
+    for x, y in zip(a, b, strict=False):
+        if x != y:
+            mm += 1
+            if mm > max_mm:
+                return False
+    return True
+
+
+def mononucleotide_shuffles(seq: str, n: int, rng: random.Random) -> list[str]:
+    """Permute the window's nucleotides at random, preserving base composition."""
+    out = []
+    chars = list(seq)
+    for _ in range(n):
+        rng.shuffle(chars)
+        out.append("".join(chars))
+    return out
+
+
+def block_shuffles(seq: str, n: int, block: int, rng: random.Random) -> list[str]:
+    """Permute nucleotides within consecutive 50-nt blocks (local composition kept)."""
+    out = []
+    for _ in range(n):
+        chars = list(seq)
+        for start in range(0, len(chars), block):
+            seg = chars[start:start + block]
+            rng.shuffle(seg)
+            chars[start:start + block] = seg
+        out.append("".join(chars))
+    return out
+
+
+def _seed_ok(seed: str) -> bool:
+    if len(set(seed)) < MIN_DISTINCT_BASES:
+        return False
+    run = 1
+    for i in range(1, len(seed)):
+        run = run + 1 if seed[i] == seed[i - 1] else 1
+        if run >= HOMOPOLYMER:
+            return False
+    return True
+
+
+def _most_frequent_words(window: str, word_len: int, top: int) -> list[str]:
+    counts: dict[str, int] = {}
+    for i in range(len(window) - word_len + 1):
+        w = window[i:i + word_len]
+        counts[w] = counts.get(w, 0) + 1
+    words = [w for w, _ in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+             if _seed_ok(w)]
+    return words[:top]
+
+
+def _copies_of(window: str, seed: str, max_mm: int) -> list[int]:
+    """Greedy left-to-right non-overlapping copy positions."""
+    pos: list[int] = []
+    i = 0
+    while i + len(seed) <= len(window):
+        if hamming_within(window[i:i + len(seed)], seed, max_mm):
+            pos.append(i)
+            i += len(seed)  # non-overlapping
+        else:
+            i += 1
+    return pos
+
+
+def _regular_runs(positions: list[int]) -> list[list[int]]:
+    """Split sorted copy positions into maximal runs with spacing in
+    [MIN_SPACING, MAX_SPACING]; a run is kept when all gaps are within 30% of the
+    median gap (INTERPRETED: "regularly spaced" — tolerance taken from the paper's
+    delimitation step, which fixes 30%)."""
+    if len(positions) < MIN_RUN:
+        return []
+    runs: list[list[int]] = []
+    cur = [positions[0]]
+    for prev, nxt in zip(positions, positions[1:], strict=False):
+        gap = nxt - prev
+        if MIN_SPACING <= gap <= MAX_SPACING:
+            cur.append(nxt)
+        else:
+            if len(cur) >= MIN_RUN:
+                runs.append(cur)
+            cur = [nxt]
+    if len(cur) >= MIN_RUN:
+        runs.append(cur)
+    kept = []
+    for run in runs:
+        gaps = [b - a for a, b in zip(run, run[1:], strict=False)]
+        med = sorted(gaps)[len(gaps) // 2]
+        if all(abs(g - med) <= SPACING_TOLERANCE * med for g in gaps):
+            kept.append(run)
+    return kept
+
+
+@dataclass
+class ScanCall:
+    locus: str
+    status: str  # "array" | "no_array" | "not_assessed"
+    R: int = 0
+    seed: str | None = None
+    copies: list[int] = field(default_factory=list)
+    note: str = ""
+
+
+def kmer_scan(locus: str, upstream: str, rng: random.Random,
+              word_len: int = REPEAT_LEN_SCAN) -> ScanCall:
+    """Paper step 1. ``upstream`` is the window 5' of the RT start codon (already
+    oriented so the RT is downstream); fewer than MIN_UPSTREAM_FOR_ASSESSMENT nt
+    upstream with no array yields status "not_assessed"."""
+    window = upstream[:MAX_UPSTREAM_SCAN].upper()
+    best = ScanCall(locus=locus, status="no_array")
+    for seed in _most_frequent_words(window, word_len, SEEDS_PER_WINDOW):
+        positions = _copies_of(window, seed, COPY_MISMATCHES)
+        runs = _regular_runs(positions)
+        if not runs:
+            continue
+        long_run = max(runs, key=len)
+        # suppression: a longer run of copies spaced under MIN_SPACING apart wins
+        short_runs = _runs_with_spacing_at_most(positions, MIN_SPACING - 1)
+        if short_runs and max(len(r) for r in short_runs) > len(long_run):
+            continue
+        r = len(long_run)
+        if r < MIN_RUN:
+            continue
+        shuffled_best = max(
+            (_longest_regular(_copies_of(s, seed, COPY_MISMATCHES))
+             for s in mononucleotide_shuffles(window, N_SHUFFLES_SCAN, rng)),
+            default=0,
+        )
+        if r >= MIN_RUN and r > shuffled_best and r > best.R:
+            best = ScanCall(locus=locus, status="array", R=r, seed=seed,
+                            copies=long_run)
+    if best.status != "array" and len(upstream) < MIN_UPSTREAM_FOR_ASSESSMENT:
+        best.status = "not_assessed"
+    return best
+
+
+def _runs_with_spacing_at_most(positions: list[int], max_gap: int) -> list[list[int]]:
+    runs: list[list[int]] = []
+    cur: list[int] = []
+    for prev, nxt in zip(positions, positions[1:], strict=False):
+        if nxt - prev <= max_gap:
+            if not cur:
+                cur = [prev]
+            cur.append(nxt)
+        else:
+            if cur:
+                runs.append(cur)
+                cur = []
+    if cur:
+        runs.append(cur)
+    return runs
+
+
+def _longest_regular(positions: list[int]) -> int:
+    runs = _regular_runs(positions)
+    return max((len(r) for r in runs), default=0)
+
+
+# --------------------------------------------------------------------------
+# Step 2: delimitation
+# --------------------------------------------------------------------------
+
+@dataclass
+class DelimitedArray:
+    locus: str
+    copy_starts: list[int]
+    repeat: str  # consensus of the conserved block
+    score: float
+    shuffles_used: int
+    spacings: list[int] = field(default_factory=list)
+
+
+def _information_content(columns: list[str], background: dict[str, float]) -> float:
+    """Shannon IC of aligned columns against the region's base composition."""
+    ic = 0.0
+    log = math_log2
+    n = len(columns)
+    if n == 0:
+        return 0.0
+    for col in zip(*columns, strict=False):
+        counts = {b: col.count(b) / n for b in BASES}
+        ic += sum(p * log(p / background[b]) for b, p in counts.items() if p > 0)
+    return ic
+
+
+def math_log2(x: float) -> float:
+    import math
+
+    return math.log2(x)
+
+
+def _consensus_block(copies_seqs: list[str]) -> tuple[int, int, str]:
+    """Longest contiguous block of columns whose consensus base is carried by >=80%
+    of copies, with one lapse tolerated. Returns (start, end_exclusive, consensus)."""
+    if not copies_seqs:
+        return 0, 0, ""
+    width = min(len(s) for s in copies_seqs)
+    cons = []
+    for i in range(width):
+        col = [s[i] for s in copies_seqs]
+        base = max(set(col), key=col.count)
+        cons.append((base, col.count(base) / len(col)))
+    blocks: list[tuple[int, int]] = []
+    start = None
+    lapses = 0
+    for i, (_, frac) in enumerate(cons):
+        if frac >= CONSENSUS_FRACTION:
+            if start is None:
+                start = i
+            lapses = 0
+        elif start is not None and lapses == 0:
+            lapses += 1  # one lapse tolerated
+        else:
+            if start is not None:
+                blocks.append((start, i + 1))
+            start = None
+            lapses = 0
+    if start is not None:
+        blocks.append((start, len(cons)))
+    if not blocks:
+        return 0, 0, ""
+    s, e = max(blocks, key=lambda b: b[1] - b[0])
+    return s, e, "".join(cons[i][0] for i in range(s, e))
+
+
+def _chains(positions: list[int]) -> list[list[int]]:
+    """Chains of copies at near-constant spacing (DELIMIT_SPACING, 30% tolerance
+    against the running median gap, a single skipped copy allowed = one gap may be
+    ~2x the median)."""
+    lo, hi = DELIMIT_SPACING
+    out: list[list[int]] = []
+    for i in range(len(positions)):
+        cur = [positions[i]]
+        gaps: list[int] = []
+        skipped = False
+        for nxt in positions[i + 1:]:
+            gap = nxt - cur[-1]
+            is_skip = False
+            if not (lo <= gap <= hi):
+                if not skipped and len(cur) >= 2 and 2 * lo <= gap <= 2 * hi:
+                    is_skip = True  # single skipped copy tolerated
+                else:
+                    break
+            eff = gap // 2 if is_skip else gap
+            if gaps:
+                med = sorted(gaps)[len(gaps) // 2]
+                if abs(eff - med) > SPACING_TOLERANCE * med:
+                    break
+            gaps.append(eff)
+            cur.append(nxt)
+            skipped = skipped or is_skip
+        if len(cur) >= MIN_RUN:
+            out.append(cur)
+    return out
+
+
+def _chain_score(window: str, chain: list[int], seed_len: int) -> tuple[float, str]:
+    copies_seqs = [window[p:p + seed_len] for p in chain]
+    background = {b: window.count(b) / max(1, len(window)) for b in BASES}
+    s, e, _ = _consensus_block(copies_seqs)
+    columns = [seq[s:e] for seq in copies_seqs]
+    ic = _information_content(columns, background)
+    return (len(chain) - 1) * ic, "".join(
+        max(set(col), key=col.count) for col in zip(*columns, strict=False))
+
+
+def delimit_array(locus: str, upstream: str, rng: random.Random) -> DelimitedArray | None:
+    """Paper step 2. Tests every recurring 10-nt word as seed; retains the longest
+    near-constant-spaced chain whose score beats the best chain in 200 (or 2,000 on
+    weak margins) 50-nt-block shuffles, in both 3,000- and 6,000-nt windows."""
+    window6 = upstream[:MAX_UPSTREAM_DELIMIT].upper()
+    window3 = window6[:MAX_UPSTREAM_SCAN]
+    counts: dict[str, int] = {}
+    for i in range(len(window6) - SEED_LEN_DELIMIT + 1):
+        w = window6[i:i + SEED_LEN_DELIMIT]
+        counts[w] = counts.get(w, 0) + 1
+    seeds = [w for w, c in counts.items() if c >= 2]  # INTERPRETED: "recurring" = >=2
+
+    best: tuple[float, list[int], int] | None = None  # (score, chain, shuffles_used)
+    for seed in seeds:
+        positions = _copies_of(window6, seed, DELIMIT_MISMATCHES)
+        for chain in _chains(positions):
+            score, _ = _chain_score(window6, chain, SEED_LEN_DELIMIT)
+            if best is None or score > best[0]:
+                best = (score, chain, N_SHUFFLES_DELIMIT)
+    if best is None or best[0] <= 0:
+        return None
+
+    def best_shuffle_score(window: str, n: int) -> float:
+        top = 0.0
+        for shuf in block_shuffles(window, n, 50, rng):
+            for seed in seeds:
+                positions = _copies_of(shuf, seed, DELIMIT_MISMATCHES)
+                for chain in _chains(positions):
+                    score, _ = _chain_score(shuf, chain, SEED_LEN_DELIMIT)
+                    top = max(top, score)
+        return top
+
+    score, chain, shuffles_used = best
+    base_max3 = best_shuffle_score(window3, N_SHUFFLES_DELIMIT)
+    base_max6 = best_shuffle_score(window6, N_SHUFFLES_DELIMIT)
+    beat = score > base_max3 and score > base_max6
+    if beat and score < 2 * base_max6:
+        beat = all(score > best_shuffle_score(w, N_SHUFFLES_DELIMIT_RETEST)
+                   for w in (window3, window6))
+        shuffles_used = N_SHUFFLES_DELIMIT_RETEST
+    if not beat:
+        return None
+
+    seed_len = SEED_LEN_DELIMIT
+    _, repeat = _chain_score(window6, chain, seed_len)
+    spacings = [b - a for a, b in zip(chain, chain[1:], strict=False)]
+    return DelimitedArray(locus=locus, copy_starts=chain, repeat=repeat,
+                          score=score, shuffles_used=shuffles_used,
+                          spacings=spacings)
