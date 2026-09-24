@@ -10,3 +10,4 @@ dist/
 task-runs/*/work/
 *.sqlite3
 *.mmseqs2/
+.claude/
