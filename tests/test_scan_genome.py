@@ -44,3 +44,24 @@ def test_scan_genome_finds_planted_array():
     planted = (500, 500 + 14 * (16 + 120))
     assert any(h["start"] < planted[1] and planted[0] < h["end"] and h["R"] >= 4
                for h in hits)
+
+
+def test_scan_genome_suppression_is_window_local():
+    # grok round-4 probe: 6 short-spaced (30 nt) copies at 0..150 must NOT
+    # suppress a regular 4-copy run at 4000..4420 — kmer_scan calls it
+    mod = _load()
+    rng = random.Random(0)
+    word = "ACGTACGTTGCAAT"
+    parts = []
+    for _i in range(6):  # short-spaced run
+        parts.append(word)
+        parts.append("".join(rng.choice("ACGT") for _ in range(16)))
+    parts.append("".join(rng.choice("ACGT") for _ in range(3850)))
+    for _ in range(4):  # regular run at ~4000
+        parts.append(word)
+        parts.append("".join(rng.choice("ACGT") for _ in range(126)))
+    parts.append("".join(rng.choice("AT") for _ in range(500)))  # poly-AT tail
+    genome = "".join(parts)
+    hits = mod.scan_genome("t", genome, random.Random(1))
+    regular = [h for h in hits if h["R"] == 4]
+    assert regular, f"expected the regular R=4 run to survive suppression: {hits}"

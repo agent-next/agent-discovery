@@ -71,15 +71,17 @@ def scan_transcripts(transcripts_root: Path, ids: set[str]) -> list[dict]:
         for ln_no, ln in enumerate(lines):
             dna_m = DNA_RUN.search(ln)
             rem_m = REPEAT_WORDS.search(ln)
+            # DNA from strictly earlier lines precedes anything on this line
+            prior_dna_lines = [n for n in dna_seen_at if n < ln_no]
             if dna_m:
                 dna_seen_at.append(ln_no)
             if rem_m:
                 repeat_remarks += 1
-                # same line counts as after-DNA only when the DNA run starts
-                # BEFORE the remark on that line (grok round-2 finding 5)
-                after = bool(dna_seen_at) and (
-                    dna_seen_at[-1] != ln_no
-                    or (dna_m and dna_m.start() < rem_m.start()))
+                # after-DNA = DNA on an earlier line, or a DNA run starting
+                # before the remark on the same line (grok round-4 finding 1:
+                # the current line's own DNA must not shadow earlier lines)
+                after = bool(prior_dna_lines) or (
+                    dna_m is not None and dna_m.start() < rem_m.start())
                 if after:
                     remark_after_dna += 1
                     if len(samples) < 3:

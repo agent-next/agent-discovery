@@ -100,3 +100,18 @@ def test_scan_records_word_boundary(tmp_path: Path):
     ids.write_text("L0050\n")
     hits = mod.scan_records(tmp_path / "records", mod.load_identifiers(ids))
     assert hits == {}  # bare-substring would falsely match
+
+
+def test_remark_after_dna_on_earlier_line_with_own_dna(tmp_path: Path):
+    # grok round-4 probe: remark's own line also carries DNA, but line 0 already
+    # had a >=200-nt DNA run -> the remark must still count as after-DNA
+    mod = _load()
+    (tmp_path / "s").mkdir()
+    dna = "ACGT" * 60
+    tr = tmp_path / "s" / "a.log"
+    tr.write_text(f"L0050 flank: {dna}\ntandem repeat suspected then {dna}\n")
+    ids = tmp_path / "ids.txt"
+    ids.write_text("L0050\n")
+    out = mod.scan_transcripts(tmp_path / "s", mod.load_identifiers(ids))
+    assert out[0]["dna_runs_ge200nt"] == 2
+    assert out[0]["repeat_remarks_after_dna"] == 1

@@ -83,27 +83,32 @@ def scan_genome(name: str, seq: str, rng: random.Random) -> list[dict]:
         if len(positions) < MIN_RUN:
             continue
         for run in _regular_runs(positions):
-            # kmer_scan suppression rule: a LONGER run of copies spaced under
-            # 100 nt apart suppresses the call (grok round-2: declared but the
-            # helper was never wired)
-            short_runs = [r2 for r2 in _runs_under(positions, MIN_SPACING - 1)
-                          if len(r2) > len(run)]
-            if short_runs:
-                continue
             lo = max(0, run[0] - 3000)
             hi = min(len(seq), run[-1] + WORD + 3000)
             window = seq[lo:hi]
+            # window-local copies: kmer_scan sees only the <=3,000 nt adjacent
+            # window, so suppression and the null use window coordinates
+            # (grok round-4 finding 2: genome-wide positions over-suppressed)
+            win_positions = _copies_of(window, seed, 2)
+            win_runs = _regular_runs(win_positions)
+            long_run = max(win_runs, key=len) if win_runs else []
+            if len(long_run) < MIN_RUN:
+                continue
+            short_runs = _runs_under(win_positions, MIN_SPACING - 1)
+            if short_runs and max(len(x) for x in short_runs) > len(long_run):
+                continue
             # paper control: longest such run in 100 mononucleotide shuffles
             shuf_best = 0
             for shuf in mononucleotide_shuffles(window, 100, rng):
                 sb = _copies_of(shuf, seed, 2)
                 rr = _regular_runs(sb)
                 shuf_best = max(shuf_best, max((len(r) for r in rr), default=0))
-            if len(run) > shuf_best:
+            if len(long_run) > shuf_best:
+                g_start, g_end = lo + long_run[0], lo + long_run[-1] + WORD
                 hits.append({
-                    "genome": name, "start": run[0], "end": run[-1] + WORD,
-                    "R": len(run), "seed": seed,
-                    "span_kb": round((run[-1] + WORD - run[0]) / 1000, 2),
+                    "genome": name, "start": g_start, "end": g_end,
+                    "R": len(long_run), "seed": seed,
+                    "span_kb": round((g_end - g_start) / 1000, 2),
                     "shuffle_max": shuf_best,
                 })
     hits.sort(key=lambda h: -h["R"])
