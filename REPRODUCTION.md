@@ -25,12 +25,12 @@ transcriptases with tandem repeat arrays". Facts ledger: `docs/paper-notes.md`.
 | 16 | Partner scoring: 3 filters, controls, 3,564 → 16 | Methods p.30 | `pipeline/census/06` | Devin PR |
 | 17 | ART family definition: QQM14740.1 → 95 members | Methods p.31-32 | `pipeline/art_family/family_definition.sh` | Devin PR |
 | 18 | k-mer array scan (20×14-mer seeds, shuffles, R≥3) | Methods p.32 | `artharness.arrays.kmer_scan` | done + tests |
-| 19 | Array delimitation (10-mer, 30% tol, 200/2000 shuffles, PWM) | Methods p.32 | `artharness.arrays.delimit_array` | done + tests (PWM copy-extension step partially — see GAP-5) |
+| 19 | Array delimitation (10-mer, 30% tol, 200/2000 shuffles, PWM) | Methods p.32 | `artharness.arrays.delimit_array` + `pwm_extend` + `cross_scan` | done + tests |
 | 20 | Phylogeny: 774 set, MAFFT L-INS-i, IQ-TREE Q.pfam+F+R6 | Methods p.33 | `pipeline/art_family/phylogeny.sh` | Devin PR |
 | 21 | RNA-seq reanalysis: PRJNA836150, Bowtie2, 8% at 15 min | Methods p.36-37 | `pipeline/rnaseq/sa1_infection.sh` | Devin PR |
 | 22 | Wet-lab protocols (plasmids, small-RNA-seq) | Methods p.36-37 | documented only — no lab (GAP-6) | documented |
 | 23 | Benchmark: L1–L5, 3,500 attempts, 10-claim rubric, judge | Methods p.38 | `benchmark/` | Devin PR |
-| 24 | Replicate campaigns (10×) + transcript forensics | Methods p.38 | rerun via orchestrator + `experiments` (not started) | queued (GAP-7) |
+| 24 | Replicate campaigns (10×) + transcript forensics | Methods p.38 | rerun via orchestrator + `experiments/forensics.py` (identifier search, ≥200-nt DNA + repeat-remark parsing) | forensics done; reruns budget-gated (GAP-7) |
 | 25 | Interpretability (Evo2/gLM2 profiles; Mythos 5 sparse signals) | Methods p.38-39 | out of repo scope — needs model internals (GAP-3) | not reproducible |
 | 26 | Serendipity chain t0010 → t0062 | Results p.3-5 | emerges from harness if workers/supervisors behave similarly | not guaranteed (paper: 0/10 reruns) |
 
@@ -94,13 +94,11 @@ guides' titles/contents were never published (GAP-2).
   WHAT WOULD UNLOCK: a cluster allocation (Jetstream2/AutoDL is not sized for this;
   would need ≥2 TB RAM or a carefully partitioned disk-backed run).
 
-- **GAP-5 Delimitation tail (PWM copy-extension step).**
-  WHY: implemented in `arrays.py` as scoring + consensus repeat; the paper's final
-  "PWM matches above max-of-200-shuffles counted as copies" extension and
-  cross-array PWM grouping are partially implemented (cross-scan helper pending).
-  HOW: `DelimitedArray.copy_starts` covers the chain; PWM extension tracked as a
-  follow-up issue.
-  WHAT WOULD UNLOCK: nothing external — it is queued engineering work.
+- **GAP-5 Delimitation tail (PWM copy-extension step).** RESOLVED 2026-09-24:
+  `pwm_extend` (log-odds PWM; copies = matches above the max of 200 block-shuffled
+  regions) and `cross_scan` (every array's PWM scanned against every other locus to
+  group arrays sharing a repeat) implemented and tested
+  (`tests/test_arrays_pwm.py`). Pseudocount value NOT-IN-PAPER (1e-3 default).
 
 - **GAP-6 Wet lab.**
   WHY: no laboratory; protocols require BSL-1/2 work, Illumina run, cloning.
