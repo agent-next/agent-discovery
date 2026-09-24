@@ -20,8 +20,9 @@ real blocker is hit; every blocker gets a WHY/HOW/WHAT entry in REPRODUCTION.md 
 
 ## Round-2 (grok delta re-verify in flight)
 - [x] Round-1 grok review: REQUEST_CHANGES, 15 findings — ALL fixed + pushed (babd1a9)
-- [ ] grok delta re-verify (task-runs/20260924-grok-delta/) -> on APPROVE: merge PR #1, tag v0.1.0
-- [ ] rename local checkout dir art-harness -> agent-discovery (after grok session closes)
+- [x] grok delta re-verify: rounds 2-5; round-5 VERDICT: APPROVE, 0 new findings (127 tests)
+- [x] PR #1 merged to main; v0.1.0 tagged
+- [x] local checkout dir renamed art-harness -> agent-discovery (post-review)
 - [ ] boss HTML report (goal-html-report) at closeout
 
 ## Queued (I own these)
@@ -31,7 +32,7 @@ real blocker is hit; every blocker gets a WHY/HOW/WHAT entry in REPRODUCTION.md 
 - [ ] Verify Devin PR by execution (fresh clone, make check, dry-runs, key tests)
 - [x] Independent review dispatched (grok, b8ahfz2b9) — receipt: task-runs/20260924-devin-build/grok-review.md
 - [ ] Merge via authorized gate; tag v0.1.0
-- [ ] Session handoff: MEMORY.md + receipt
+- [ ] Session handoff: memory files written (MEMORY.md index update blocked by immutable attr — owner action)
 
 ## Blockers ledger (move to REPRODUCTION.md §Gaps when confirmed)
 - Supp. Note 1 verbatim brief: not released anywhere (checked: PDF, news page, HN 752
