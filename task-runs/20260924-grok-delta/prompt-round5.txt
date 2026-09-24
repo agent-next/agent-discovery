@@ -1,0 +1,5 @@
+Round-5 delta verification. Round-4 found 2 minors, both fixed in commits 6df9b55..HEAD:
+1. forensics prior-line DNA: remark on a line that itself has DNA still counts as after-DNA when an earlier line had DNA (probe: line0 "L0050 flank:<240nt>", line1 "tandem repeat suspected then <240nt>" -> dna_runs=2, after_dna=1; test test_remark_after_dna_on_earlier_line_with_own_dna).
+2. scan_genome: suppression + shuffle now use window-local copies (win_positions from the <=3000nt window), suppression skips only if a longer short-spaced run exists WITHIN the window; hit coords are window-local mapped to genome. Probe: 6 short-spaced copies at 0..150 + regular 4-copy run at 4000..4420 in 5000nt -> regular run survives (test_scan_genome_suppression_is_window_local).
+
+Verify these two fixes by code + running the two probe tests; run `make check` (expect 125->127 pass, 0 fail). Confirm no NEW findings introduced by these edits (diff 6df9b55..HEAD is small: forensics ordering block, scan_genome loop, 2 tests). Output: per-item table, new findings, VERDICT: APPROVE or REQUEST_CHANGES. Read-only.
