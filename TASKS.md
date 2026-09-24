@@ -23,7 +23,7 @@ real blocker is hit; every blocker gets a WHY/HOW/WHAT entry in REPRODUCTION.md 
 - [ ] REPRODUCTION.md — paper-element → component map + WHY/HOW/WHAT gap ledger
 - [ ] brief/research_brief.md — 6-anchor reconstruction (labeled non-verbatim)
 - [ ] Verify Devin PR by execution (fresh clone, make check, dry-runs, key tests)
-- [ ] Independent review (grok lane) of full diff before merge
+- [x] Independent review dispatched (grok, b8ahfz2b9) — receipt: task-runs/20260924-devin-build/grok-review.md
 - [ ] Merge via authorized gate; tag v0.1.0
 - [ ] Session handoff: MEMORY.md + receipt
 
