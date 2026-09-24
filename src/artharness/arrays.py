@@ -373,3 +373,113 @@ def delimit_array(locus: str, upstream: str, rng: random.Random) -> DelimitedArr
     return DelimitedArray(locus=locus, copy_starts=chain, repeat=repeat,
                           score=score, shuffles_used=shuffles_used,
                           spacings=spacings)
+
+
+# --------------------------------------------------------------------------
+# PWM extension and cross-array grouping (paper p.32, end of delimitation)
+# --------------------------------------------------------------------------
+
+def build_pwm(alignments: list[str], background: dict[str, float],
+              pseudocount: float = 1e-3) -> list[dict[str, float]]:
+    """Log-odds PWM over aligned copy sequences (columns = positions).
+
+    NOT-IN-PAPER: pseudocount value; the paper specifies only that a PWM of the
+    repeat was built.
+    """
+    width = min(len(s) for s in alignments)
+    pwm = []
+    for i in range(width):
+        col = {b: pseudocount for b in BASES}
+        for s in alignments:
+            col[s[i]] += 1.0
+        total = sum(col.values())
+        pwm.append({b: math_log2((col[b] / total) / background.get(b, 0.25))
+                    for b in BASES})
+    return pwm
+
+
+def pwm_score(seq: str, pwm: list[dict[str, float]]) -> float:
+    return sum(pwm[i][b] for i, b in enumerate(seq) if i < len(pwm))
+
+
+def pwm_max_shuffle_score(window: str, pwm: list[dict[str, float]],
+                          rng: random.Random, n: int = 200) -> float:
+    """Threshold = best PWM match anywhere in each of 200 block-shuffled windows."""
+    top = 0.0
+    w = len(pwm)
+    for shuf in block_shuffles(window, n, 50, rng):
+        for i in range(len(shuf) - w + 1):
+            top = max(top, pwm_score(shuf[i:i + w], pwm))
+    return top
+
+
+def pwm_extend(array: DelimitedArray, upstream: str, rng: random.Random,
+               ) -> DelimitedArray:
+    """'A position weight matrix of the repeat was then built, and matches that
+    scored above the maximum of 200 shuffled regions were counted as copies'
+    (Methods p.32). Returns a new DelimitedArray with extended copy list."""
+    window = upstream[:MAX_UPSTREAM_DELIMIT].upper()
+    background = {b: window.count(b) / max(1, len(window)) for b in BASES}
+    w = len(array.repeat)
+    aligned = [window[p:p + w] for p in array.copy_starts if p + w <= len(window)]
+    if len(aligned) < MIN_RUN:
+        return array
+    pwm = build_pwm(aligned, background)
+    threshold = pwm_max_shuffle_score(window, pwm, rng)
+    # non-overlapping scan, left to right, skipping known copy positions
+    starts = sorted(array.copy_starts)
+    known = {p for p in starts}
+    i = 0
+    extra: list[int] = []
+    while i + w <= len(window):
+        if i in known:
+            i += w  # avoid double-counting delimited copies
+            continue
+        if pwm_score(window[i:i + w], pwm) > threshold:
+            extra.append(i)
+            i += w
+        else:
+            i += 1
+    if not extra:
+        return array
+    merged = sorted(set(starts) | set(extra))
+    spacings = [b - a for a, b in zip(merged, merged[1:], strict=False)]
+    return DelimitedArray(locus=array.locus, copy_starts=merged, repeat=array.repeat,
+                          score=array.score, shuffles_used=array.shuffles_used,
+                          spacings=spacings)
+
+
+def cross_scan(arrays: list[DelimitedArray], upstreams: dict[str, str],
+               rng: random.Random) -> dict[str, set[str]]:
+    """'Each locus was also scanned with the position weight matrix of every other
+    array to group arrays that share a repeat' (Methods p.32).
+
+    Returns locus -> set of other loci whose PWM matches that locus's upstream
+    region above the shuffled threshold (symmetrized).
+    """
+    pwms: dict[str, list[dict[str, float]]] = {}
+    for arr in arrays:
+        window = upstreams.get(arr.locus, "")[:MAX_UPSTREAM_DELIMIT].upper()
+        aligned = [window[p:p + len(arr.repeat)] for p in arr.copy_starts
+                   if p + len(arr.repeat) <= len(window)]
+        if aligned:
+            pwms[arr.locus] = build_pwm(aligned,
+                                        {b: window.count(b) / max(1, len(window))
+                                         for b in BASES})
+    groups: dict[str, set[str]] = {a.locus: set() for a in arrays}
+    for arr in arrays:
+        window = upstreams.get(arr.locus, "")[:MAX_UPSTREAM_DELIMIT].upper()
+        if not window:
+            continue
+        for other_locus, pwm in pwms.items():
+            if other_locus == arr.locus:
+                continue
+            w = len(pwm)
+            if len(window) < w:
+                continue
+            threshold = pwm_max_shuffle_score(window, pwm, rng)
+            best = max((pwm_score(window[i:i + w], pwm)
+                        for i in range(len(window) - w + 1)), default=0.0)
+            if best > threshold:
+                groups[arr.locus].add(other_locus)
+    return groups
