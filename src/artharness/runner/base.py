@@ -17,6 +17,7 @@ the substitution in its receipt.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -47,8 +48,9 @@ class SessionSpec:
 class BackendOutput:
     result: SessionResult
     proposed_followups: list[str] = field(default_factory=list)
-    verdict: str | None = None  # supervisor: "accept" | "revise"
+    verdict: str | None = None  # supervisor: accept|revise; editor: yes|no
     verdict_notes: str | None = None
+    text: str | None = None  # full model text (curator entry body, etc.)
 
 
 class ScriptedBackend:
@@ -79,9 +81,9 @@ class ScriptedBackend:
         out = self.scenario.get(key)
         if out is None:
             if spec.role == "supervisor":
-                out = BackendOutput(
-                    result=self._result(spec), verdict="accept",
-                )
+                out = BackendOutput(result=self._result(spec), verdict="accept")
+            elif spec.role == "editor":
+                out = BackendOutput(result=self._result(spec), verdict="yes")
             else:
                 out = BackendOutput(result=self._result(spec))
         return out
@@ -134,12 +136,20 @@ class ClaudeCodeBackend:
             # The supervisor system prompt requires a literal VERDICT: line.
             # Missing/unparseable verdict returns None — the orchestrator fails
             # toward revision (grok review 2026-09-24).
-            import re
-
             m = re.search(r"VERDICT:\s*(accept|revise)\b", text, re.IGNORECASE)
             if m:
                 verdict = m.group(1).lower()
                 verdict_notes = text[m.end():].strip()[:2000] or None
+        elif spec.role == "editor":
+            # Editors must give an explicit FILE: yes|no; None fails toward
+            # not-filing (grok round-2: a live editor's silent None filed reports).
+            m = re.search(r"FILE:\s*(yes|no)\b", text, re.IGNORECASE)
+            if m:
+                verdict = m.group(1).lower()
+                verdict_notes = text[m.end():].strip()[:2000] or None
+        # NB: re is imported at module top — a function-local import here made
+        # `re` a local for the whole function and raised UnboundLocalError on the
+        # worker path (grok round-2 finding 1).
         proposed = re.findall(r"PROPOSE_FOLLOWUP:\s*(.+)", text) \
             if spec.role == "worker" else []
         return BackendOutput(
@@ -155,4 +165,5 @@ class ClaudeCodeBackend:
             proposed_followups=[p.strip() for p in proposed],
             verdict=verdict,
             verdict_notes=verdict_notes,
+            text=text or None,
         )

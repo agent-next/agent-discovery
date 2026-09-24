@@ -51,25 +51,39 @@ def scan_records(records_root: Path, ids: set[str]) -> dict[str, list[str]]:
 
 
 def scan_transcripts(transcripts_root: Path, ids: set[str]) -> list[dict]:
-    """Per transcript naming an identifier: ordered events with >=200-nt DNA and
-    repeat remarks, plus whether a repeat remark ever followed a DNA retrieval."""
+    """Per transcript naming an identifier: ordered event walk — a repeat remark
+    counts as 'downstream of DNA retrieval' only when a >=200-nt DNA run appeared
+    earlier in the transcript (paper p.38; grok round-2 finding 9). Identifiers
+    match on word boundaries, not bare substrings."""
     out: list[dict] = []
     for tf in sorted(Path(transcripts_root).rglob("*")):
         if not tf.is_file():
             continue
-        text = tf.read_text(errors="replace")
-        named = sorted(i for i in ids if i in text)
+        lines = tf.read_text(errors="replace").splitlines()
+        named = sorted(i for i in ids
+                       if re.search(rf"\b{re.escape(i)}\b", "\n".join(lines)))
         if not named:
             continue
-        dna_events = [m.group(0)[:60] for m in DNA_RUN.finditer(text)]
-        repeat_lines = [ln.strip()[:120] for ln in text.splitlines()
-                        if REPEAT_WORDS.search(ln)]
+        dna_seen_at: list[int] = []
+        repeat_remarks = 0
+        remark_after_dna = 0
+        samples: list[str] = []
+        for ln_no, ln in enumerate(lines):
+            if DNA_RUN.search(ln):
+                dna_seen_at.append(ln_no)
+            if REPEAT_WORDS.search(ln):
+                repeat_remarks += 1
+                if dna_seen_at:
+                    remark_after_dna += 1
+                    if len(samples) < 3:
+                        samples.append(ln.strip()[:120])
         out.append({
             "transcript": str(tf),
             "identifiers": named,
-            "dna_runs_ge200nt": len(dna_events),
-            "repeat_remarks": len(repeat_lines),
-            "repeat_remark_samples": repeat_lines[:3],
+            "dna_runs_ge200nt": len(dna_seen_at),
+            "repeat_remarks": repeat_remarks,
+            "repeat_remarks_after_dna": remark_after_dna,
+            "repeat_remark_samples": samples,
         })
     return out
 

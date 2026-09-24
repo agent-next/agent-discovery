@@ -102,7 +102,9 @@ class Roles:
             role="curator", task_id=rec.task_id, system_prompt=CURATOR_SYSTEM,
             user_prompt=prompt, workdir=self.store.records / rec.task_id,
         ))
-        entry = self._synthesized_entry(out, rec)
+        # live backends return the entry prose in `text`; offline backends fall
+        # back to a provenance stub (grok round-2 finding 3)
+        entry = out.text or self._synthesized_entry(out, rec)
         title = f"findings from {rec.task_id} ({rec.label or rec.stage})"
         self.kb.add(rec.task_id, title, entry)
         return out

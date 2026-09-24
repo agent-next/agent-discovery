@@ -11,7 +11,10 @@ genome-wide with equivalent semantics:
 2. find non-overlapping copies (<=2 mismatches) genome-wide per seed;
 3. keep runs of >=3 copies with regular spacing 100-450 nt (30% median tolerance);
 4. for each candidate window (run +/- MAX_UPSTREAM_SCAN), run the full shuffle
-   control exactly as `artharness.arrays.kmer_scan` does.
+   control as `artharness.arrays.kmer_scan` does, including its suppression rule
+   (no call when a longer run of copies is spaced under 100 nt apart). Deviation
+   vs the per-locus scan: null seeds here come from the reference window (the
+   per-locus scan rediscovers seeds per shuffle).
 
 USAGE: python3 scripts/scan_genome.py genome.fna [genome2.fna ...]
 """
@@ -29,6 +32,31 @@ from artharness.arrays import MIN_RUN, _copies_of, _regular_runs, _seed_ok, mono
 WORD = 14
 MIN_COUNT_FOR_SEED = 2
 MAX_SEEDS = 200
+MIN_SPACING = 100  # paper: regular spacing is 100-450 nt, start to start
+
+
+def mod_runs_under(positions: list[int], max_gap: int) -> list[list[int]]:
+    """Runs of consecutive copies spaced at most max_gap apart."""
+    runs: list[list[int]] = []
+    cur: list[int] = []
+    for prev, nxt in zip(positions, positions[1:], strict=False):
+        if nxt - prev <= max_gap:
+            if not cur:
+                cur = [prev]
+            cur.append(nxt)
+        else:
+            if cur:
+                runs.append(cur)
+                cur = []
+    if cur:
+        runs.append(cur)
+    return runs
+
+
+def arrays_min_spacing() -> int:
+    from artharness.arrays import MIN_SPACING as _MS
+
+    return _MS
 
 
 def read_fasta(path: Path) -> tuple[str, str]:

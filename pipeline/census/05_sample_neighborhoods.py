@@ -190,7 +190,7 @@ def plan() -> str:
     )
     lines = [
         "census step 05 -- anchor sampling and neighborhood extraction (dry-run plan)",
-        "  anchor quotas (paper):",
+        "  anchor quotas (paper, novel = 60/clade over exactly 16 clades):",
         f"    Abi {QUOTA_EXHAUSTIVE['Abi']} exhaustive; "
         f"group II-like {QUOTA_EXHAUSTIVE['group II-like']} exhaustive",
         f"    DGR {QUOTA_RANDOM['DGR']} random; "
@@ -202,8 +202,9 @@ def plan() -> str:
         f"    novel {NOVEL_PER_CLADE}/clade x {NOVEL_CLADES} clades",
         f"    unplaced {UNPLACED_LARGEST_LINEAGES} largest lineages "
         f"+ {UNPLACED_SINGLETONS} random singletons",
-        f"  reported total: {TOTAL_ANCHORS:,} anchors"
-        f" (GAP: stated quotas sum to {quota_sum:,})",
+        f"  total anchors: {quota_sum:,}"
+        + ("" if quota_sum == TOTAL_ANCHORS else
+           f" (GAP: paper reports {TOTAL_ANCHORS:,})"),
         f"  neighborhoods: up to {MAX_LOCI_PER_ANCHOR_PER_SOURCE} loci per anchor"
         f" from each of {'/'.join(LOCUS_SOURCES)}, {FLANK_BP // 1000} kb flanks",
     ]

@@ -232,7 +232,7 @@ class Orchestrator:
         draft = self.store.write_text(task_id, "report-draft.md", report_text)
         eout = self.roles.editor(task_id, draft)
         self.ledger.record(eout.result)
-        if eout.verdict == "no":
+        if eout.verdict != "yes":  # only an explicit yes files; None fails safe
             self.store.write_text(task_id, "report-review.md",
                                   f"FILE: no\n\n{eout.verdict_notes or ''}\n")
             self.store.commit(f"report({task_id}): editor rejected")

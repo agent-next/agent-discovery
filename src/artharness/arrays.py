@@ -231,6 +231,9 @@ class DelimitedArray:
     score: float
     shuffles_used: int
     spacings: list[int] = field(default_factory=list)
+    block_offset: int = 0  # start of the conserved block within a copy
+    # (grok round-2: PWM consumers must slice copy_start+block_offset, else they
+    # align the seed prefix when s > 0)
 
 
 def _information_content(columns: list[str], background: dict[str, float]) -> float:
@@ -275,7 +278,8 @@ def _consensus_block(copies_seqs: list[str]) -> tuple[int, int, str]:
             lapses += 1  # one lapse tolerated
         else:
             if start is not None:
-                blocks.append((start, i + 1))
+                blocks.append((start, i))  # end exclusive: the second failing
+                # column is not part of the repeat (the ONE tolerated lapse is)
             start = None
             lapses = 0
     if start is not None:
@@ -376,19 +380,20 @@ def delimit_array(locus: str, upstream: str, rng: random.Random) -> DelimitedArr
     base_max3 = best_shuffle_score(window3, N_SHUFFLES_DELIMIT)
     base_max6 = best_shuffle_score(window6, N_SHUFFLES_DELIMIT)
     beat = score > base_max3 and score > base_max6
-    if beat and score < 2 * base_max6:
+    null_margin = max(base_max3, base_max6)
+    if beat and score < 2 * null_margin:
         beat = all(score > best_shuffle_score(w, N_SHUFFLES_DELIMIT_RETEST)
                    for w in (window3, window6))
         shuffles_used = N_SHUFFLES_DELIMIT_RETEST
     if not beat:
         return None
 
-    seed_len = SEED_LEN_DELIMIT
-    _, repeat = _chain_score(window6, chain, seed_len)
+    copies_seqs = [window6[p:p + SEED_LEN_DELIMIT] for p in chain]
+    blk_s, _, repeat = _consensus_block(copies_seqs)
     spacings = [b - a for a, b in zip(chain, chain[1:], strict=False)]
     return DelimitedArray(locus=locus, copy_starts=chain, repeat=repeat,
                           score=score, shuffles_used=shuffles_used,
-                          spacings=spacings)
+                          spacings=spacings, block_offset=blk_s)
 
 
 # --------------------------------------------------------------------------
@@ -437,22 +442,24 @@ def pwm_extend(array: DelimitedArray, upstream: str, rng: random.Random,
     window = upstream[-MAX_UPSTREAM_DELIMIT:].upper()
     background = {b: window.count(b) / max(1, len(window)) for b in BASES}
     w = len(array.repeat)
-    aligned = [window[p:p + w] for p in array.copy_starts if p + w <= len(window)]
+    off = array.block_offset
+    aligned = [window[p + off:p + off + w] for p in array.copy_starts
+               if p + off + w <= len(window)]
     if len(aligned) < MIN_RUN:
         return array
     pwm = build_pwm(aligned, background)
     threshold = pwm_max_shuffle_score(window, pwm, rng)
     # non-overlapping scan, left to right, skipping known copy positions
     starts = sorted(array.copy_starts)
-    known = {p for p in starts}
-    i = 0
+    known = {p + off for p in starts}
+    i = off  # PWM matches the conserved block, which starts at +block_offset
     extra: list[int] = []
     while i + w <= len(window):
-        if i in known:
+        if i - off in known:
             i += w  # avoid double-counting delimited copies
             continue
         if pwm_score(window[i:i + w], pwm) > threshold:
-            extra.append(i)
+            extra.append(i - off)  # record copy starts, not block starts
             i += w
         else:
             i += 1
@@ -477,8 +484,10 @@ def cross_scan(arrays: list[DelimitedArray], upstreams: dict[str, str],
     pwms: dict[str, list[dict[str, float]]] = {}
     for arr in arrays:
         window = upstreams.get(arr.locus, "")[-MAX_UPSTREAM_DELIMIT:].upper()
-        aligned = [window[p:p + len(arr.repeat)] for p in arr.copy_starts
-                   if p + len(arr.repeat) <= len(window)]
+        w = len(arr.repeat)
+        off = arr.block_offset
+        aligned = [window[p + off:p + off + w] for p in arr.copy_starts
+                   if p + off + w <= len(window)]
         if aligned:
             pwms[arr.locus] = build_pwm(aligned,
                                         {b: window.count(b) / max(1, len(window))
@@ -492,7 +501,8 @@ def cross_scan(arrays: list[DelimitedArray], upstreams: dict[str, str],
             if other_locus == arr.locus:
                 continue
             w = len(pwm)
-            if len(window) < w:
+            off = arr.block_offset
+            if len(window) < w + off:
                 continue
             threshold = pwm_max_shuffle_score(window, pwm, rng)
             best = max((pwm_score(window[i:i + w], pwm)

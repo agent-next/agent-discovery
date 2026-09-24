@@ -79,3 +79,63 @@ def test_cross_scan_groups_loci_sharing_a_repeat():
     assert "B" in groups["A"] and "A" in groups["B"]  # same core -> grouped
     assert "C" not in groups["A"] and "C" not in groups["B"]
     assert "A" not in groups["C"]
+
+
+def test_consensus_block_second_lapse_excluded():
+    # grok round-2 probe: column fractions 1.0, 1.0, 0.5 (tolerated lapse),
+    # 0.6 (second lapse) -> block must end exclusive of the 4th column
+    from artharness.arrays import _consensus_block
+
+    cols = [
+        "AAAAAAAAAA",  # 1.0 A
+        "AAAAAAAAAC",  # 0.9 A
+        "AAAACCCCCC",  # 0.5 A  <- tolerated lapse
+        "AAAACCCCCCC"[:11],  # 0.45.. use explicit below instead
+    ]
+    cols[3] = "AACCCCCCCC"[:10]
+    s0, e0, cons = _consensus_block([c + "GG" for c in cols])
+    assert (s0, e0) == (0, 3), (s0, e0)
+    assert cons == "AAA"
+
+
+def test_pwm_extend_uses_block_offset():
+    # repeat conserved block starts at offset 4 within each copy: PWM alignment
+    # must slice copy_start+offset, not the seed prefix (grok round-2 #4)
+    rng = random.Random(9)
+    copies = [20 + i * 136 for i in range(14)]
+    end = copies[-1] + 24 + 60
+    core = "GAATTCCTTAAG"
+    chars = [rng.choice("ACGT") for _ in range(end)]
+    for p in copies:
+        word = "TTTT" + core + "GGGG"
+        for j, b in enumerate(word):
+            chars[p + j] = b
+    window = "".join(chars)
+    arr = DelimitedArray(locus="L", copy_starts=copies, repeat=core, score=10.0,
+                         shuffles_used=200, block_offset=4)
+    out = pwm_extend(arr, window, rng)
+    assert set(out.copy_starts) == set(copies)  # nothing new, nothing lost
+
+
+def test_cross_scan_with_block_offset():
+    def build(seed):
+        r = random.Random(seed)
+        copies = [20 + i * 136 for i in range(14)]
+        end = copies[-1] + 24 + 60
+        chars = [r.choice("ACGT") for _ in range(end)]
+        for p in copies:
+            word = "TTTT" + core + "GGGG"
+            for j, b in enumerate(word):
+                chars[p + j] = b
+        return "".join(chars), copies
+    core = CORE
+    wa, ca = build(3)
+    wb, cb = build(4)
+    arrays = [
+        DelimitedArray(locus="A", copy_starts=ca, repeat=core, score=9.0,
+                       shuffles_used=200, block_offset=4),
+        DelimitedArray(locus="B", copy_starts=cb, repeat=core, score=9.0,
+                       shuffles_used=200, block_offset=4),
+    ]
+    groups = cross_scan(arrays, {"A": wa, "B": wb}, random.Random(5))
+    assert "B" in groups["A"] and "A" in groups["B"]

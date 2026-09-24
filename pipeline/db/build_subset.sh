@@ -150,7 +150,7 @@ fi
 # --cov-mode is not a diamond cluster option (grok review 2026-09-24)
 # coverage follow the mmseqs convention -- verify against the installed release.
 run "diamond makedb --in \"$OUT/proteins_filt.faa\" -d \"$OUT/proteins_filt\""
-run "diamond cluster -d \"$OUT/proteins_filt.dmnd\" -o \"$OUT/clusters90.tsv\" --approx-id 90 --member-cover 0.8"
+run "diamond cluster -d \"$OUT/proteins_filt.dmnd\" -o \"$OUT/clusters90.tsv\" --approx-id 90 --member-cover 80"
 if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "python3 - $OUT/clusters90.tsv $OUT/proteins_filt.faa $OUT/reps90.ids  # rep = member closest to 80th pct of length"
 else
@@ -158,7 +158,7 @@ else
 fi
 run "seqkit grep -f \"$OUT/reps90.ids\" \"$OUT/proteins_filt.faa\" > \"$OUT/reps90.faa\""
 run "diamond makedb --in \"$OUT/reps90.faa\" -d \"$OUT/reps90\""
-run "diamond cluster -d \"$OUT/reps90.dmnd\" -o \"$OUT/clusters70.tsv\" --approx-id 70 --member-cover 0.8"
+run "diamond cluster -d \"$OUT/reps90.dmnd\" -o \"$OUT/clusters70.tsv\" --approx-id 70 --member-cover 80"
 if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "python3 - $OUT/clusters70.tsv $OUT/reps90.faa $OUT/reps70.ids  # rep = member closest to 80th pct of length"
 else
@@ -166,7 +166,7 @@ else
 fi
 run "seqkit grep -f \"$OUT/reps70.ids\" \"$OUT/reps90.faa\" > \"$OUT/reps70.faa\""
 run "diamond makedb --in \"$OUT/reps70.faa\" -d \"$OUT/reps70\""
-run "diamond cluster -d \"$OUT/reps70.dmnd\" -o \"$OUT/clusters50.tsv\" --approx-id 50 --mutual-cover 0.8"
+run "diamond cluster -d \"$OUT/reps70.dmnd\" -o \"$OUT/clusters50.tsv\" --approx-id 50 --mutual-cover 80"
 if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "python3 - $OUT/clusters50.tsv $OUT/reps70.faa $OUT/subset_reps.ids  # final subset representatives (80th pct of length)"
 else

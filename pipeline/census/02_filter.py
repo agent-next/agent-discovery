@@ -2,7 +2,7 @@
 
 paper Methods "RT census by the agents" p.29: retain hits covering the complete
 RT core profile (coverage >= 0.75) at a class-specific minimum length of
-225-346 aa; discard fragments (n=2,016,377), weak hits (n=1,171,334; bitscore
+225-346 aa; discard fragments (n=2,016,377), weak hits (n=1,171,334; jointly bitscore
 < 25, coverage < 0.35, and no YxDD catalytic motif), or excluded for other
 reasons (n=622). Thresholds were fixed beforehand on the five reference RTs
 named in the brief (Ec86, LtrA, BPP-1 Brt, AbiK, RT-Cas1 fusion) and on 2,339
