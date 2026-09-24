@@ -28,7 +28,8 @@ EXPECTED_RETAINED = 203_381
 
 # paper: "complete RT core profile" coverage floor
 MIN_CORE_COVERAGE = 0.75
-# paper: weak-hit discard thresholds (bitscore < 25 or coverage < 0.35)
+# paper: weak-hit thresholds (bitscore < 25 AND coverage < 0.35 AND no YxDD,
+# all three jointly — Methods p.29)
 WEAK_BITSCORE = 25.0
 WEAK_COVERAGE = 0.35
 # paper: RTs carry a YxDD active-site motif; motif-less hits are discarded
@@ -192,8 +193,8 @@ def plan() -> str:
         "  class min lengths: "
         + ", ".join(f"{k}={v}" for k, v in sorted(CLASS_MIN_LENGTH_AA.items())),
         "  GAP: per-class minima not stated -- placeholders at band floor 225",
-        f"  discard weak: bitscore < {WEAK_BITSCORE} OR coverage < {WEAK_COVERAGE}"
-        " OR no YxDD motif (needs --seqs FASTA to test)",
+        f"  discard weak: bitscore < {WEAK_BITSCORE} AND coverage < {WEAK_COVERAGE}"
+        " AND no YxDD motif, jointly (needs --seqs FASTA to test)",
         f"  expected retained: {EXPECTED_RETAINED:,}",
     ]
     return "\n".join(lines)

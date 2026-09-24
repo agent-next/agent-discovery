@@ -146,7 +146,7 @@ fi
 # coverage of the shorter sequence (cascaded on representatives), then 50%
 # identity with >=80% mutual coverage.
 # GAP: the paper does not give the DIAMOND version or exact coverage flag
-# `diamond cluster` coverage flags are --member-cover / --mutual-cover (fractions);
+# `diamond cluster` coverage flags are --member-cover / --mutual-cover (percents);
 # --cov-mode is not a diamond cluster option (grok review 2026-09-24)
 # coverage follow the mmseqs convention -- verify against the installed release.
 run "diamond makedb --in \"$OUT/proteins_filt.faa\" -d \"$OUT/proteins_filt\""

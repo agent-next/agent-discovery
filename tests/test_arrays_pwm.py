@@ -139,3 +139,24 @@ def test_cross_scan_with_block_offset():
     ]
     groups = cross_scan(arrays, {"A": wa, "B": wb}, random.Random(5))
     assert "B" in groups["A"] and "A" in groups["B"]
+
+
+def test_pwm_extend_preserves_block_offset():
+    # grok round-3 major: the extended DelimitedArray must keep block_offset
+    rng = random.Random(11)
+    copies = [20 + i * 136 for i in range(14)]
+    end = copies[-1] + 24 + 60
+    core = "GAATTCCTTAAG"
+    chars = [rng.choice("ACGT") for _ in range(end)]
+    for p in copies:
+        for j, b in enumerate("TTTT" + core + "GGGG"):
+            chars[p + j] = b
+    # one extra conserved block in a spacer gap
+    for j, b in enumerate("TTTT" + core + "GGGG"):
+        chars[100 + j] = b
+    window = "".join(chars)
+    arr = DelimitedArray(locus="L", copy_starts=copies, repeat=core, score=10.0,
+                         shuffles_used=200, block_offset=4)
+    out = pwm_extend(arr, window, rng)
+    assert len(out.copy_starts) > len(copies)
+    assert out.block_offset == 4  # must survive the extension round-trip

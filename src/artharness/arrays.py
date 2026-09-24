@@ -449,14 +449,17 @@ def pwm_extend(array: DelimitedArray, upstream: str, rng: random.Random,
         return array
     pwm = build_pwm(aligned, background)
     threshold = pwm_max_shuffle_score(window, pwm, rng)
-    # non-overlapping scan, left to right, skipping known copy positions
+    # Non-overlapping scan, left to right. The PWM models the conserved block,
+    # which sits at copy_start + block_offset; a hit at window position i is a
+    # BLOCK start, so the copy start is i - off (grok round-2 finding on the
+    # known-set: `known` holds block starts and must be tested directly).
     starts = sorted(array.copy_starts)
-    known = {p + off for p in starts}
-    i = off  # PWM matches the conserved block, which starts at +block_offset
+    known_block_starts = {p + off for p in starts}
+    i = 0
     extra: list[int] = []
     while i + w <= len(window):
-        if i - off in known:
-            i += w  # avoid double-counting delimited copies
+        if i in known_block_starts:
+            i += w  # delimited copy: skip its block
             continue
         if pwm_score(window[i:i + w], pwm) > threshold:
             extra.append(i - off)  # record copy starts, not block starts
@@ -469,7 +472,7 @@ def pwm_extend(array: DelimitedArray, upstream: str, rng: random.Random,
     spacings = [b - a for a, b in zip(merged, merged[1:], strict=False)]
     return DelimitedArray(locus=array.locus, copy_starts=merged, repeat=array.repeat,
                           score=array.score, shuffles_used=array.shuffles_used,
-                          spacings=spacings)
+                          spacings=spacings, block_offset=off)  # offset must survive
 
 
 def cross_scan(arrays: list[DelimitedArray], upstreams: dict[str, str],
@@ -501,8 +504,7 @@ def cross_scan(arrays: list[DelimitedArray], upstreams: dict[str, str],
             if other_locus == arr.locus:
                 continue
             w = len(pwm)
-            off = arr.block_offset
-            if len(window) < w + off:
+            if len(window) < w:
                 continue
             threshold = pwm_max_shuffle_score(window, pwm, rng)
             best = max((pwm_score(window[i:i + w], pwm)

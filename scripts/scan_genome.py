@@ -35,7 +35,13 @@ MAX_SEEDS = 200
 MIN_SPACING = 100  # paper: regular spacing is 100-450 nt, start to start
 
 
-def mod_runs_under(positions: list[int], max_gap: int) -> list[list[int]]:
+def arrays_min_spacing() -> int:
+    from artharness.arrays import MIN_SPACING as _MS
+
+    return _MS
+
+
+def _runs_under(positions: list[int], max_gap: int) -> list[list[int]]:
     """Runs of consecutive copies spaced at most max_gap apart."""
     runs: list[list[int]] = []
     cur: list[int] = []
@@ -51,12 +57,6 @@ def mod_runs_under(positions: list[int], max_gap: int) -> list[list[int]]:
     if cur:
         runs.append(cur)
     return runs
-
-
-def arrays_min_spacing() -> int:
-    from artharness.arrays import MIN_SPACING as _MS
-
-    return _MS
 
 
 def read_fasta(path: Path) -> tuple[str, str]:
@@ -83,6 +83,13 @@ def scan_genome(name: str, seq: str, rng: random.Random) -> list[dict]:
         if len(positions) < MIN_RUN:
             continue
         for run in _regular_runs(positions):
+            # kmer_scan suppression rule: a LONGER run of copies spaced under
+            # 100 nt apart suppresses the call (grok round-2: declared but the
+            # helper was never wired)
+            short_runs = [r2 for r2 in _runs_under(positions, MIN_SPACING - 1)
+                          if len(r2) > len(run)]
+            if short_runs:
+                continue
             lo = max(0, run[0] - 3000)
             hi = min(len(seq), run[-1] + WORD + 3000)
             window = seq[lo:hi]

@@ -44,7 +44,7 @@ def scan_records(records_root: Path, ids: set[str]) -> dict[str, list[str]]:
             continue
         text = "\n".join(p.read_text(errors="replace")
                          for p in task_dir.rglob("*") if p.is_file())
-        found = sorted(i for i in ids if i in text)
+        found = sorted(i for i in ids if re.search(rf"\b{re.escape(i)}\b", text))
         if found:
             hits[task_dir.name] = found
     return hits
@@ -69,11 +69,18 @@ def scan_transcripts(transcripts_root: Path, ids: set[str]) -> list[dict]:
         remark_after_dna = 0
         samples: list[str] = []
         for ln_no, ln in enumerate(lines):
-            if DNA_RUN.search(ln):
+            dna_m = DNA_RUN.search(ln)
+            rem_m = REPEAT_WORDS.search(ln)
+            if dna_m:
                 dna_seen_at.append(ln_no)
-            if REPEAT_WORDS.search(ln):
+            if rem_m:
                 repeat_remarks += 1
-                if dna_seen_at:
+                # same line counts as after-DNA only when the DNA run starts
+                # BEFORE the remark on that line (grok round-2 finding 5)
+                after = bool(dna_seen_at) and (
+                    dna_seen_at[-1] != ln_no
+                    or (dna_m and dna_m.start() < rem_m.start()))
+                if after:
                     remark_after_dna += 1
                     if len(samples) < 3:
                         samples.append(ln.strip()[:120])

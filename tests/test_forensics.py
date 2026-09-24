@@ -66,3 +66,37 @@ def test_cli_end_to_end(tmp_path: Path):
     data = json.loads(outp.read_text())
     assert data["record_hits"] == {"t0001": ["MW248466.1"]}
     assert data["identifiers_searched"] == 1
+
+
+def test_same_line_remark_before_dna_not_after(tmp_path: Path):
+    mod = _load()
+    (tmp_path / "s").mkdir()
+    dna = "ACGT" * 60
+    # remark BEFORE the DNA on the same line -> not "after DNA"
+    tr = tmp_path / "s" / "a.log"
+    tr.write_text(f"tandem repeat suspected then {dna}\n")
+    ids = tmp_path / "ids.txt"
+    ids.write_text("L0050\n")
+    assert mod.scan_transcripts(tmp_path / "s", mod.load_identifiers(ids)) == []
+
+
+def test_scan_transcripts_remark_after_dna_counts(tmp_path: Path):
+    mod = _load()
+    (tmp_path / "s").mkdir()
+    dna = "ACGT" * 60
+    tr = tmp_path / "s" / "a.log"
+    tr.write_text(f"flank of L0050: {dna}\ntandem repeat array!\n")
+    ids = tmp_path / "ids.txt"
+    ids.write_text("L0050\n")
+    out = mod.scan_transcripts(tmp_path / "s", mod.load_identifiers(ids))
+    assert out[0]["repeat_remarks_after_dna"] == 1
+
+
+def test_scan_records_word_boundary(tmp_path: Path):
+    mod = _load()
+    (tmp_path / "records" / "t0001").mkdir(parents=True)
+    (tmp_path / "records" / "t0001" / "summary.md").write_text("contig XL0050Y only")
+    ids = tmp_path / "ids.txt"
+    ids.write_text("L0050\n")
+    hits = mod.scan_records(tmp_path / "records", mod.load_identifiers(ids))
+    assert hits == {}  # bare-substring would falsely match
