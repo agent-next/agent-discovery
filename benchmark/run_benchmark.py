@@ -17,11 +17,15 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+if __package__ in (None, ""):  # executed as a script: python3 benchmark/run_benchmark.py
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from benchmark.levels import LEVELS, Environment, build_environment, write_synthetic_inputs
 from benchmark.rubric import Finding, Rubric, Submission, default_rubric, grade_submission
