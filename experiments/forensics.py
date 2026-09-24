@@ -1,0 +1,124 @@
+"""Replicate-campaign forensics — paper Methods "Replicate campaigns" p.38.
+
+After rerunning the campaign, the paper asked: did any replicate rediscover the ART
+loci? Procedure (parameter-exact):
+
+- collect identifiers from the reference campaign: RT ids (paper: 130), contig ids
+  (paper: 171), and names/accessions of cultured phages encoding such RTs;
+- search all replicate task records (paper: 3,084 records) and session transcripts
+  (paper: 5,632) for those identifiers;
+- for every session that named a relevant contig (paper: 11), parse events in order
+  and record (a) tool results containing a contiguous DNA string of >=200 nt and
+  (b) remarks on repeats;
+- an ART locus on a contig outside the identifier set would not be found by this
+  search (paper's own caveat).
+
+USAGE
+    python3 experiments/forensics.py --records <campaign-root> \\
+        --identifiers ids.txt --out findings.json
+
+ids.txt: one identifier per line (RT task labels, contig names, accessions).
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+from pathlib import Path
+
+DNA_RUN = re.compile(r"[ACGTacgt]{200,}")  # paper: contiguous DNA string of >=200 nt
+REPEAT_WORDS = re.compile(r"\b(repeat|tandem|array|direct repeat|spacer)\b",
+                          re.IGNORECASE)
+
+
+def load_identifiers(path: Path) -> set[str]:
+    return {line.strip() for line in path.read_text().splitlines() if line.strip()}
+
+
+def scan_records(records_root: Path, ids: set[str]) -> dict[str, list[str]]:
+    """task id -> identifiers mentioned anywhere in its record files."""
+    hits: dict[str, list[str]] = {}
+    for task_dir in sorted(Path(records_root).glob("t*")):
+        if not task_dir.is_dir():
+            continue
+        text = "\n".join(p.read_text(errors="replace")
+                         for p in task_dir.rglob("*") if p.is_file())
+        found = sorted(i for i in ids if re.search(rf"\b{re.escape(i)}\b", text))
+        if found:
+            hits[task_dir.name] = found
+    return hits
+
+
+def scan_transcripts(transcripts_root: Path, ids: set[str]) -> list[dict]:
+    """Per transcript naming an identifier: ordered event walk — a repeat remark
+    counts as 'downstream of DNA retrieval' only when a >=200-nt DNA run appeared
+    earlier in the transcript (paper p.38; grok round-2 finding 9). Identifiers
+    match on word boundaries, not bare substrings."""
+    out: list[dict] = []
+    for tf in sorted(Path(transcripts_root).rglob("*")):
+        if not tf.is_file():
+            continue
+        lines = tf.read_text(errors="replace").splitlines()
+        named = sorted(i for i in ids
+                       if re.search(rf"\b{re.escape(i)}\b", "\n".join(lines)))
+        if not named:
+            continue
+        dna_seen_at: list[int] = []
+        repeat_remarks = 0
+        remark_after_dna = 0
+        samples: list[str] = []
+        for ln_no, ln in enumerate(lines):
+            dna_m = DNA_RUN.search(ln)
+            rem_m = REPEAT_WORDS.search(ln)
+            # DNA from strictly earlier lines precedes anything on this line
+            prior_dna_lines = [n for n in dna_seen_at if n < ln_no]
+            if dna_m:
+                dna_seen_at.append(ln_no)
+            if rem_m:
+                repeat_remarks += 1
+                # after-DNA = DNA on an earlier line, or a DNA run starting
+                # before the remark on the same line (grok round-4 finding 1:
+                # the current line's own DNA must not shadow earlier lines)
+                after = bool(prior_dna_lines) or (
+                    dna_m is not None and dna_m.start() < rem_m.start())
+                if after:
+                    remark_after_dna += 1
+                    if len(samples) < 3:
+                        samples.append(ln.strip()[:120])
+        out.append({
+            "transcript": str(tf),
+            "identifiers": named,
+            "dna_runs_ge200nt": len(dna_seen_at),
+            "repeat_remarks": repeat_remarks,
+            "repeat_remarks_after_dna": remark_after_dna,
+            "repeat_remark_samples": samples,
+        })
+    return out
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--records", required=True,
+                    help="campaign root containing records/tNNNN dirs")
+    ap.add_argument("--transcripts", default=None,
+                    help="optional root of session transcripts (rglob)")
+    ap.add_argument("--identifiers", required=True, help="one identifier per line")
+    ap.add_argument("--out", required=True, help="findings JSON path")
+    args = ap.parse_args()
+
+    ids = load_identifiers(Path(args.identifiers))
+    report = {
+        "identifiers_searched": len(ids),
+        "records_root": args.records,
+        "record_hits": scan_records(Path(args.records), ids),
+        "transcript_hits": (scan_transcripts(Path(args.transcripts), ids)
+                            if args.transcripts else []),
+    }
+    Path(args.out).write_text(json.dumps(report, indent=2) + "\n")
+    print(f"identifiers={len(ids)} record_hits={len(report['record_hits'])} "
+          f"transcript_hits={len(report['transcript_hits'])} -> {args.out}")
+
+
+if __name__ == "__main__":
+    main()

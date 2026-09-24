@@ -177,16 +177,20 @@ class Orchestrator:
         for fu in out.proposed_followups:
             self.propose_followup(fu, rec, proposed_by="worker")
 
-        # supervisor review loop
+        # supervisor review loop. Only an explicit "accept" accepts; a missing or
+        # unparseable verdict fails toward revision (grok review 2026-09-24: the
+        # old code treated None as accept, so live backends that omitted the
+        # verdict could never trigger revisions or stalls).
         while True:
             sout = self.roles.supervisor(rec)
             self.ledger.record(sout.result)
-            if sout.verdict == "revise":
+            if sout.verdict != "accept":
                 rec.revisions += 1
                 rec.status = TaskStatus.REVISING
                 self.store.write_text(
                     rec.task_id, f"verdict-r{rec.revisions}.md",
-                    f"VERDICT: revise\n\n{sout.verdict_notes or ''}\n")
+                    f"VERDICT: revise ({sout.verdict or 'no verdict parsed'})"
+                    f"\n\n{sout.verdict_notes or ''}\n")
                 self.store.update(rec, f"task({rec.task_id}): supervisor revise "
                                        f"({rec.revisions}/{self.cfg.max_revisions})")
                 if rec.revisions >= self.cfg.max_revisions:
@@ -208,8 +212,8 @@ class Orchestrator:
             self.report.revised += 1
 
         # curator enters findings into the shared knowledge base
-        self.roles.curator(rec)
-        self.ledger.record(_curator_result(rec))
+        cout = self.roles.curator(rec)
+        self.ledger.record(cout.result)
         rec.status = TaskStatus.CURATED
         self.store.update(rec, f"task({rec.task_id}): curated")
 
@@ -228,7 +232,7 @@ class Orchestrator:
         draft = self.store.write_text(task_id, "report-draft.md", report_text)
         eout = self.roles.editor(task_id, draft)
         self.ledger.record(eout.result)
-        if eout.verdict == "no":
+        if eout.verdict != "yes":  # only an explicit yes files; None fails safe
             self.store.write_text(task_id, "report-review.md",
                                   f"FILE: no\n\n{eout.verdict_notes or ''}\n")
             self.store.commit(f"report({task_id}): editor rejected")
@@ -239,10 +243,3 @@ class Orchestrator:
         self.store.update(rec, f"task({task_id}): report filed")
         self.report.reports_filed += 1
         return final
-
-
-def _curator_result(rec: TaskRecord):
-    from .accounting import SessionResult
-
-    return SessionResult(role="curator", task_id=rec.task_id, duration_s=0.0,
-                         input_tokens_uncached=0, output_tokens=0, cache_write_tokens=0)

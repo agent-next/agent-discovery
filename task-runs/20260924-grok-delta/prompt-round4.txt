@@ -1,0 +1,5 @@
+Round-4 delta verification (should be the last). Round-3 left: R2#5 scan_genome suppression wired (was dead code), R2#6 02_filter plan text AND (the actual printed string), plus your 6 new findings: (1) pwm_extend preserves block_offset on the extended object; (2) pwm_extend known-set uses block starts directly, scan from i=0; (3) cross_scan length guard is motif-length only; (4) scan_records word-boundary matching; (5) forensics same-line DNA-before-remark ordering; (6) "fractions"->"percents" comment. All in commits 9f57b4b..HEAD.
+
+Verify each by code + probes (regression tests added: test_pwm_extend_preserves_block_offset, test_same_line_remark_before_dna_not_after, test_scan_transcripts_remark_after_dna_counts, test_scan_records_word_boundary). Full suite must pass (should be 125). Note: your round-3 count of 121 vs writer's 49 was a `-q` progress-line artifact — both runs collect the same suite; verified this round.
+
+Output: per-item table, new findings if any, VERDICT: APPROVE or REQUEST_CHANGES. Read-only.

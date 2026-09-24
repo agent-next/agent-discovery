@@ -93,7 +93,7 @@ class Roles:
         return out
 
     # -- curator ---------------------------------------------------------------
-    def curator(self, rec: TaskRecord) -> str:
+    def curator(self, rec: TaskRecord) -> BackendOutput:
         prompt = (
             f"# Task {rec.task_id}\n\n## brief\n{self.store.read_text(rec.task_id, 'brief.md')}"
             f"\n\n## worker summary\n{self.store.read_text(rec.task_id, 'summary.md')}"
@@ -102,10 +102,12 @@ class Roles:
             role="curator", task_id=rec.task_id, system_prompt=CURATOR_SYSTEM,
             user_prompt=prompt, workdir=self.store.records / rec.task_id,
         ))
-        entry = self._synthesized_entry(out, rec)
+        # live backends return the entry prose in `text`; offline backends fall
+        # back to a provenance stub (grok round-2 finding 3)
+        entry = out.text or self._synthesized_entry(out, rec)
         title = f"findings from {rec.task_id} ({rec.label or rec.stage})"
         self.kb.add(rec.task_id, title, entry)
-        return entry
+        return out
 
     # -- editor ------------------------------------------------------------------
     def editor(self, task_id: str, report_path: Path) -> BackendOutput:

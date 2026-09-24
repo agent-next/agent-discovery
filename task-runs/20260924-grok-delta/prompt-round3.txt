@@ -1,0 +1,16 @@
+Round-3 delta verification (final gate before merge). Round-2 left 2 NOT-RESOLVED (diamond cover units; consensus-block off-by-one) + 10 new findings (4 major: import-re UnboundLocalError; editor FILE never parsed; curator entry text dropped; PWM block-offset misalignment). Writer claims all fixed in commits babd1a9..9f57b4b on devin/build-modules.
+
+Verify by reading code + running the suite:
+1. R1#4: build_subset.sh now --member-cover 80 / --mutual-cover 80 (percents per diamond wiki); test asserts the same.
+2. R1#9: _consensus_block — probe cols fractions 1.0,1.0,0.5,0.6 must yield block (0,3); regression test exists (tests/test_arrays_pwm.py::test_consensus_block_second_lapse_excluded).
+3. R2#1: no function-local `import re` in runner/base.py; worker PROPOSE_FOLLOWUP path cannot UnboundLocalError.
+4. R2#2: ClaudeCodeBackend parses FILE: yes|no for editor; orchestrator files only on verdict == "yes" (None -> not filed).
+5. R2#3: BackendOutput.text; Roles.curator uses out.text when present.
+6. R2#4: DelimitedArray.block_offset threaded through delimit_array/pwm_extend/cross_scan; tests test_pwm_extend_uses_block_offset + test_cross_scan_with_block_offset.
+7. R2#5: scan_genome suppression rule + honest doc.
+8. R2#6/7: 02_filter plan text AND; 05 conditional GAP line (dry-run prints "total anchors: 7,308" without GAP).
+9. R2#8: README 52 HMMs.
+10. R2#9: forensics ordered (repeat remark counts only when >=200nt DNA earlier) + word-boundary identifier match.
+11. R2#10: 2x retest margin uses max(base_max3, base_max6).
+
+Then: make check must pass (49 tests). Any NEW findings in the changed code, same format. Output: per-item RESOLVED/NOT-RESOLVED table, new findings, VERDICT: APPROVE or REQUEST_CHANGES. Do not modify files.
