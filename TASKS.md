@@ -18,6 +18,12 @@ real blocker is hit; every blocker gets a WHY/HOW/WHAT entry in REPRODUCTION.md 
 - [ ] gpt6pro Robin/Kosmos borrow-notes: FAILED (upstream timeout, no output) — recorded;
       do not block on it
 
+## Round-2 (grok delta re-verify in flight)
+- [x] Round-1 grok review: REQUEST_CHANGES, 15 findings — ALL fixed + pushed (babd1a9)
+- [ ] grok delta re-verify (task-runs/20260924-grok-delta/) -> on APPROVE: merge PR #1, tag v0.1.0
+- [ ] rename local checkout dir art-harness -> agent-discovery (after grok session closes)
+- [ ] boss HTML report (goal-html-report) at closeout
+
 ## Queued (I own these)
 - [ ] docs/paper-notes.md — verified facts ledger with page refs
 - [ ] REPRODUCTION.md — paper-element → component map + WHY/HOW/WHAT gap ledger

@@ -1,0 +1,22 @@
+Delta re-verification (round 2). Your round-1 review of agent-next/agent-discovery (41e2f44..25937a6) returned REQUEST_CHANGES with 15 findings (8 major). The writer claims ALL 15 are now fixed in commits 988af75..babd1a9 (see git log 25937a6..HEAD, plus f3dda3e for PWM/cross-scan which predates your round-1 read of arrays.py).
+
+Verify each finding by reading current code (branch devin/build-modules, cwd = the repo):
+1. 05_sample_neighborhoods NOVEL_CLADES 29->16 (quota sum must equal 7,308)
+2. 02_filter is_weak_hit OR->AND
+3. profile coverage now from hmm from/to (domtbl cols 16/17) / model length
+4. build_subset.sh diamond cluster --member-cover/--mutual-cover (no --cov-mode)
+5. delimit retains the LONGEST near-constant chain, ties by score
+6. shuffle null recomputes seeds+chains inside every shuffled region
+7. scan/delimit/PWM windows take the RT-adjacent 3,000/6,000 nt (string tail)
+8. orchestrator: only explicit accept accepts; None fails toward revision; ClaudeCodeBackend parses VERDICT:
+9. consensus-block off-by-one
+10. exact_word_scan (12-nt exact rule) added
+11. class-specific thresholds labeled PLACEHOLDER-CLASS-SPECIFIC
+12. flag test asserts --member-cover/--mutual-cover
+13. curator session recorded from backend result
+14. paper-notes/REPRODUCTION: 52 HMMs (not 98)
+15. cross_scan symmetrized by union
+
+Also review the NEW code for the same defect classes: arrays.pwm_extend, arrays.cross_scan, experiments/forensics.py, scripts/scan_genome.py (tail-window semantics!), and their tests.
+
+Rules: verify by reading the actual code, not the commit messages; refute nothing without citing file:line. Output: per-finding RESOLVED/NOT-RESOLVED table, any NEW findings (same format as round 1), then VERDICT: APPROVE or REQUEST_CHANGES. Do not modify files.
