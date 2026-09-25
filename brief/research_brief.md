@@ -2,8 +2,11 @@
 
 > **Provenance warning.** Anthropic's verbatim research brief (Supplementary Note 1)
 > has not been published (see REPRODUCTION.md GAP-1). This document reconstructs the
-> brief's骨架 from six anchors the paper states explicitly, each cited. It is written
-> to be *sufficient to run this harness*, not to impersonate Anthropic's text.
+> brief's skeleton from six anchors the paper states explicitly — five quoted, and
+> anchor 5 cited as a NEGATIVE anchor (the verbatim brief's silence on repeats and
+> arrays is itself the load-bearing fact). It is written to be *sufficient to run
+> this harness*, not to impersonate Anthropic's text. Any campaign receipt must
+> record: `brief: reconstruction-v0 (6 anchors), not verbatim`.
 > Anchors: `docs/paper-notes.md` §External anchor points.
 
 ---

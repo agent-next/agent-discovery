@@ -92,6 +92,12 @@ class Orchestrator:
         """Encode the research brief as a chain of seeded tasks (paper: 5 stage tasks,
         16 deep dives). Each stage's tasks enqueue only after the previous stage's
         scripted gate passes."""
+        # brief provenance is part of the versioned record (S1 finding D: the
+        # mandate existed only as prose in the brief; nothing enforced it)
+        (self.store.root / "campaign.md").write_text(
+            f"# campaign record\n\n{self.cfg.brief_provenance}\n\n"
+            "This campaign runs a RECONSTRUCTED research brief; it is not the "
+            "verbatim Anthropic brief (Supplementary Note 1, unpublished).\n")
         opened: dict[str, list[str]] = {}
         for i, stage in enumerate(STAGES):
             for prev in STAGES[:i]:

@@ -44,3 +44,8 @@ class CampaignConfig:
     # Session backend gate. Live LLM backends refuse to run unless this env var is set
     # by the owner (README "Safety gates").
     live_backend_env: str = "ARTHARNESS_ALLOW_LIVE"
+
+    # Brief provenance (brief/research_brief.md): every campaign receipt must
+    # record that the brief is a reconstruction, never Anthropic's text. Written
+    # into the campaign record by run_stage_chain so it cannot be forgotten.
+    brief_provenance: str = "brief: reconstruction-v0 (6 anchors), not verbatim"

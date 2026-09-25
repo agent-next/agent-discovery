@@ -20,7 +20,7 @@ real blocker is hit; every blocker gets a WHY/HOW/WHAT entry in REPRODUCTION.md 
 
 ## Round-2 (grok delta re-verify in flight)
 - [x] Round-1 grok review: REQUEST_CHANGES, 15 findings — ALL fixed + pushed (babd1a9)
-- [x] grok delta re-verify: rounds 2-5; round-5 VERDICT: APPROVE, 0 new findings (127 tests)
+- [x] grok delta re-verify: rounds 2-5; round-5 VERDICT: APPROVE, 0 new findings (162 tests)
 - [x] PR #1 merged to main; v0.1.0 tagged
 - [x] local checkout dir renamed art-harness -> agent-discovery (post-review)
 - [ ] boss HTML report (goal-html-report) at closeout

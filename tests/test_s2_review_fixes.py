@@ -450,3 +450,21 @@ def test_supervisor_prompt_contains_kb_context(tmp_path: Path):
     assert any("Madawaska" in p for p in supervisor_prompts)
     worker_prompts = [c.user_prompt for c in backend.calls if c.role == "worker"]
     assert any("Madawaska" in p for p in worker_prompts)
+
+
+def test_campaign_record_carries_brief_provenance(tmp_path: Path):
+    from artharness.accounting import SessionLedger
+    from artharness.knowledge import KnowledgeBase
+    from artharness.orchestrator import STAGES, Orchestrator
+    from artharness.records import RecordStore
+
+    root = tmp_path / "campaign"
+    root.mkdir()
+    store = RecordStore(root, use_git=False)
+    orch = Orchestrator(CampaignConfig(), store, KnowledgeBase(root / "kb"),
+                        SessionLedger(root / "ledger.jsonl"), ScriptedBackend(),
+                        {s: (lambda s: True) for s in STAGES})
+    orch.run_stage_chain({"1_input_assembly": ["task"]})
+    text = (root / "campaign.md").read_text()
+    assert "reconstruction-v0 (6 anchors), not verbatim" in text
+    assert "not the" in text and "verbatim Anthropic brief" in text

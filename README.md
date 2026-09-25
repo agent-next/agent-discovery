@@ -17,7 +17,7 @@ This repo rebuilds the three layers of that system with public tools:
 | --- | --- | --- |
 | **Harness** | launch/worker/supervisor/curator/editor sessions, task records in version control, scripted stage gates, triage with written rejections, shared knowledge base, token accounting | `src/artharness/` |
 | **Science pipeline** | RT census (52 HMMs → 198,290 clusters → 9 classes → 10,983 loci → 16 deep dives) + ART family/array/phylogeny/RNA-seq analyses, all paper-exact parameters | `pipeline/` |
-| **Benchmark** | fixed-input L1–L5 benchmark (3,500 attempts in the paper), 10-claim rubric, LLM judge, report tournament (Bradley–Terry) | `benchmark/` |
+| **Benchmark** | fixed-input L1–L5 benchmark (3,500 attempts in the paper), 10-claim rubric, offline grader (paper rule; the paper's LLM judge is NOT-IN-PAPER as a mechanism here — benchmark/rubric.py), report tournament (Bradley–Terry) | `benchmark/` |
 
 ## Status
 

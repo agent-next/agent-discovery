@@ -37,7 +37,9 @@ or press coverage.
   16 deep dives, 98 follow-ups.
 - 949 sessions = launch 1 + worker 414 + supervisor 375 + curator 107 + editor 52.
 - 76.9 agent-hours total (63.7 in worker sessions).
-- Tokens: 11.3M uncached input + 14.9M output + 189.5M cache-write = 215.6M; cache
+- Tokens: 11.3M uncached input + 14.9M output + 189.5M cache-write = 215.6M as
+  printed (components sum to 215.7M at display precision — the PDF rounds
+  independently); cache
   reads excluded. 21.5 h wall clock, no human intervention.
 - Session logs: 7,578 shell commands, 696 DB queries, 131 literature searches,
   61 web requests.
