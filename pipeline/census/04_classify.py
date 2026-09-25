@@ -156,6 +156,21 @@ def classify_target(
     return "unplaced", "unplaced"
 
 
+def load_tier3_neighbors(path: str | Path) -> dict[str, list[str]]:
+    """Read tier-3 TSV: target, neighbor_class (one row per placed neighbor).
+
+    NOT-IN-PAPER: TSV plumbing; the neighbor classes come from the tier-1/2
+    labels of sequences placed next to the unplaced target in the FastTree.
+    """
+    by_target: dict[str, list[str]] = defaultdict(list)
+    with Path(path).open() as fh:
+        for row in csv.reader(fh, delimiter="\t"):
+            if not row or row[0].startswith("#"):
+                continue
+            by_target[row[0]].extend(row[1:])
+    return dict(by_target)
+
+
 def load_tier1_hits(path: str | Path) -> dict[str, list[Tier1Hit]]:
     """Read tier-1 TSV: target, profile, rt_class, bitscore ('#' comments ok).
 
@@ -220,6 +235,9 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--tier1", help="TSV: target, profile, rt_class, bitscore")
     ap.add_argument("--tier2", help="TSV: target, label, bitscore, coverage, identity")
+    ap.add_argument("--tier3", help="TSV: target, neighbor_class[, ...] from the "
+                                   "unplaced FastTree placement; without it "
+                                   "tier-1/tier-2 leftovers stay unplaced")
     ap.add_argument("--out", help="assignments TSV: target, tier, rt_class (default stdout)")
     ap.add_argument("--aln", default="results/census/unplaced.aln.faa",
                     help="alignment for the tier-3 FastTree placement")
@@ -236,13 +254,20 @@ def main(argv: list[str] | None = None) -> int:
 
     t1 = load_tier1_hits(args.tier1)
     t2 = load_tier2_hits(args.tier2) if args.tier2 else {}
-    targets = sorted(set(t1) | set(t2))
+    # S1 finding: tier3_assign existed but was unreachable -- classify_target
+    # never received tier-3 neighbors, so every tier-3 candidate landed in
+    # "unplaced" and the paper's 137,385 unplaced count was not reproducible.
+    t3 = load_tier3_neighbors(args.tier3) if args.tier3 else None
+    targets = sorted(set(t1) | set(t2)
+                     | (set(t3) if t3 is not None else set()))
 
     out = Path(args.out).open("w") if args.out else sys.stdout
     counts: dict[str, int] = defaultdict(int)
     try:
         for target in targets:
-            tier, rt_class = classify_target(target, t1.get(target, []), t2.get(target))
+            tier, rt_class = classify_target(
+                target, t1.get(target, []), t2.get(target),
+                t3.get(target, []) if t3 is not None else None)
             counts[rt_class] += 1
             out.write(f"{target}\t{tier}\t{rt_class}\n")
     finally:

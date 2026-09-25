@@ -3,8 +3,10 @@
 #
 # paper Methods p.36-37: BioProject PRJNA836150 -- SA1 infection of
 # Staphylococcus lentus, 12 libraries over 3 time points.
-# paper: fastp 1.3.6 -- adapter trimming OFF, poly-G trimming ON,
-# minimum length 12.
+# paper: fastp 1.3.6, infection runs state ONLY "minimum length 30 nt"
+# (Methods p.36). The old adapter-off/poly-G/min-12 flags here belonged to the
+# SMALL-RNA plasmid libraries (a different dataset, p.36-37) -- S1 finder B,
+# verified against the PDF text.
 # paper: Bowtie2 --very-sensitive -X 1000 --no-unal against the SA1 genome
 # (MW218148.1) plus the S. lentus chromosome (NZ_CP059679.1).
 # paper: keep MAPQ >= 10; TPM over 259 features.
@@ -109,22 +111,33 @@ while IFS= read -r acc; do
     # NOT-IN-PAPER: fetch/prefetch plumbing
     run prefetch -O "$OUT/fastq" "$acc"
     run fasterq-dump --split-files -O "$OUT/fastq" "$acc"
-    # paper: fastp 1.3.6 -- adapter trimming OFF, poly-G trimming ON, min length 12
-    run fastp --disable_adapter_trimming --trim_poly_g --length_required 12 \
+    # paper: "fastp 1.3.6 (minimum length 30 nt)". Adapter/poly-G behavior is
+    # unstated for the infection runs -- NOT-IN-PAPER: fastp defaults apply.
+    run fastp --length_required 30 \
         -i "$OUT/fastq/${acc}_1.fastq" -I "$OUT/fastq/${acc}_2.fastq" \
         -o "$OUT/trim/${acc}_1.fq.gz" -O "$OUT/trim/${acc}_2.fq.gz"
     # paper: Bowtie2 --very-sensitive -X 1000 --no-unal vs SA1 + host
     run bowtie2 --very-sensitive -X 1000 --no-unal -x "$OUT/bt2_sa1_host" \
         -1 "$OUT/trim/${acc}_1.fq.gz" -2 "$OUT/trim/${acc}_2.fq.gz" \
         -S "$OUT/bam/${acc}.sam"
-    # paper: keep MAPQ >= 10
-    run samtools view -b -q 10 -o "$OUT/bam/${acc}.bam" "$OUT/bam/${acc}.sam"
+    # paper: "Properly paired alignments with MAPQ of at least 10 and a template
+    # of at most 1,500 nt were retained as fragments." Flags verified against the
+    # htslib samtools-view manual: -f/--require-flags (0x2 = proper pair),
+    # -e/--expr with the documented `tlen` variable.
+    run samtools view -b -q 10 -f 2 -e 'tlen <= 1500 && tlen >= -1500' \
+        -o "$OUT/bam/${acc}.bam" "$OUT/bam/${acc}.sam"
     run samtools sort -o "$OUT/bam/${acc}.sorted.bam" "$OUT/bam/${acc}.bam"
 done < <(acc_stream)
 
-# paper: TPM over 259 features
-# NOT-IN-PAPER: featureCounts for quantification (paper states TPM only)
-run featureCounts -a "$FEATURES" -o "$OUT/counts.tsv" "$OUT"/bam/*.sorted.bam
+# paper: "Each fragment was counted once on the strand of read 2 (the sense
+# read)"; features = 258 annotated SA1 CDS + the array RNA (259 total).
+# Subread Users Guide (verified): -p counts fragments; "For paired-end reads,
+# strand of the first read is taken as the strand of the whole fragment", so
+# -s 2 (reversely stranded) = the strand of READ 2 on proper pairs.
+# -t CDS matches CDS-style annotation (default 'exon' would silently give 0
+# counts). GAP: the paper's midpoint-assignment rule needs a custom counter;
+# featureCounts assigns by overlap (NOT-IN-PAPER tool choice).
+run featureCounts -p -s 2 -t CDS -a "$FEATURES" -o "$OUT/counts.tsv" "$OUT"/bam/*.sorted.bam
 if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "python3 - $OUT/counts.tsv $OUT/tpm.tsv  # TPM = (count/len)/sum(count/len)*1e6"
 else

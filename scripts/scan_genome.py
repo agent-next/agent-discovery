@@ -32,13 +32,11 @@ from artharness.arrays import MIN_RUN, _copies_of, _regular_runs, _seed_ok, mono
 WORD = 14
 MIN_COUNT_FOR_SEED = 2
 MAX_SEEDS = 200
+# suppression bound: the paper's "spaced under 100 nt apart" — always the same
+# constant as arrays.MIN_SPACING, which is imported below and used for run
+# detection; this local alias exists only for readability of _runs_under calls
+# (the previous private copy here silently drifted from the arrays module)
 MIN_SPACING = 100  # paper: regular spacing is 100-450 nt, start to start
-
-
-def arrays_min_spacing() -> int:
-    from artharness.arrays import MIN_SPACING as _MS
-
-    return _MS
 
 
 def _runs_under(positions: list[int], max_gap: int) -> list[list[int]]:
@@ -59,15 +57,25 @@ def _runs_under(positions: list[int], max_gap: int) -> list[list[int]]:
     return runs
 
 
-def read_fasta(path: Path) -> tuple[str, str]:
+def read_fasta(path: Path) -> list[tuple[str, str]]:
+    """All records of a FASTA file. The old version concatenated multi-record
+    files into one chimeric sequence under the LAST header — coordinates stopped
+    being contig-relative and junction-spanning runs could fabricate arrays
+    (S1 finding C7; NCBI .fna files are routinely multi-record)."""
+    records: list[tuple[str, str]] = []
     header = ""
     seq: list[str] = []
     for line in Path(path).read_text().splitlines():
         if line.startswith(">"):
+            if header:
+                records.append((header, "".join(seq)))
             header = line[1:].split()[0]
+            seq = []
         else:
             seq.append(line.strip().upper())
-    return header, "".join(seq)
+    if header:
+        records.append((header, "".join(seq)))
+    return records
 
 
 def scan_genome(name: str, seq: str, rng: random.Random) -> list[dict]:
@@ -123,12 +131,14 @@ def scan_genome(name: str, seq: str, rng: random.Random) -> list[dict]:
 def main(paths: list[str]) -> None:
     rng = random.Random(20260923)  # paper publication date as fixed seed
     for p in paths:
-        name, seq = read_fasta(Path(p))
-        hits = scan_genome(name, seq, rng)
-        print(f"\n== {name} ({len(seq):,} nt): {len(hits)} array(s) pass shuffle control")
-        for h in hits[:8]:
-            print(f"  pos {h['start']:,}-{h['end']:,}  R={h['R']} copies  "
-                  f"span={h['span_kb']} kb  seed={h['seed']}  shuffle_max={h['shuffle_max']}")
+        for name, seq in read_fasta(Path(p)):
+            hits = scan_genome(name, seq, rng)
+            print(f"\n== {name} ({len(seq):,} nt): "
+                  f"{len(hits)} array(s) pass shuffle control")
+            for h in hits[:8]:
+                print(f"  pos {h['start']:,}-{h['end']:,}  R={h['R']} copies  "
+                      f"span={h['span_kb']} kb  seed={h['seed']}  "
+                      f"shuffle_max={h['shuffle_max']}")
 
 
 if __name__ == "__main__":
