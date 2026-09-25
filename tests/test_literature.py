@@ -18,8 +18,8 @@ SEARCH_JSON = json.dumps({
             "authorString": "Doe J, Roe K.",
             "journalTitle": "J Mol Biol",
             "pubYear": "2024",
-            "inPMC": "y",
-            "isOpenAccess": "y",
+            "inPMC": "Y",
+            "isOpenAccess": "Y",
         },
         {
             "id": "998877",
@@ -30,8 +30,8 @@ SEARCH_JSON = json.dumps({
             "authorString": "Smith A.",
             "journalTitle": "Virology",
             "pubYear": "2023",
-            "inPMC": "n",
-            "isOpenAccess": "n",
+            "inPMC": "N",
+            "isOpenAccess": "N",
         },
     ]},
 })
@@ -121,3 +121,41 @@ def test_landing_url_prefers_doi():
 def test_offline_client_without_transport_raises():
     with pytest.raises(RuntimeError):
         EuropePMCClient(live=False).search("q")
+
+
+def test_med_record_with_uppercase_flags_is_open_access():
+    # live API returns uppercase Y/N; the old lowercase comparison made every
+    # MED record look non-OA and lost its PMC full text (live-verified 0.98)
+    ref = PaperRef.from_result({"id": "998877", "source": "MED",
+                                "inPMC": "Y", "isOpenAccess": "Y"})
+    assert ref.is_open_access and ref.in_pmc and ref.pmcid == "PMC998877"
+
+
+def test_errcode_payload_raises_instead_of_zero_hits():
+    calls = []
+
+    def transport(url):
+        calls.append(url)
+        return json.dumps({"errCode": 404,
+                           "errMsg": "Invalid page size provided."})
+
+    client = EuropePMCClient(live=False, transport=transport)
+    with pytest.raises(RuntimeError, match="Invalid page size"):
+        client.search("tandem repeat reverse transcriptase", limit=5)
+    assert calls
+
+
+def test_search_follows_next_cursor_mark():
+    page1 = json.dumps({"hitCount": 3, "nextCursorMark": "cur2",
+                        "resultList": {"result": [
+                            {"id": "1", "source": "MED", "title": "a"}]}})
+    page2 = json.dumps({"hitCount": 3, "nextCursorMark": "cur2",
+                        "resultList": {"result": [
+                            {"id": "2", "source": "MED", "title": "b"},
+                            {"id": "3", "source": "MED", "title": "c"}]}})
+
+    def transport(url):
+        return page2 if "cursorMark=cur2" in url else page1
+
+    refs = EuropePMCClient(live=False, transport=transport).search("q", limit=3)
+    assert [r.id for r in refs] == ["1", "2", "3"]  # first page alone was 1 hit
