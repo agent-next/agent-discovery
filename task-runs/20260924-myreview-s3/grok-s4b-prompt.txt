@@ -1,0 +1,5 @@
+GOAL      S4 delta round 2: re-check ONLY commit a151775, which answers your two S4 findings (failed-pass follow-ups entering triage; _chains first-gap seeds jumping over detected copies).
+CRITERIA  Execution-based, same rules: verify each fix holds (your two probes should now pass cleanly), verify the new tests have power (revert the product hunk in a scratch copy), confirm `make check` green. HEAD must be a151775.
+SCOPE     Commit a151775 only (git show a151775): src/artharness/orchestrator.py, src/artharness/arrays.py, tests/test_s2_review_fixes.py.
+VERIFY-BY `git rev-parse HEAD`; `make check` (expect 169 passed); rerun your two original probes (30-task explosion; 0,180,200,400,600,800 / 0,200,250,400,600,800 chains) and paste real output; revert-probe the two new tests.
+OUTPUT    per-finding status (RESOLVED/NOT-RESOLVED) · new findings in a151775 itself · VERDICT: SHIP | FIX-FIRST. End with GATE_COMPLETE.

@@ -26,9 +26,14 @@ def test_dry_run_smoke_still_prints_paper_commands():
                          capture_output=True, text=True)
     assert out.returncode == 0, out.stderr
     assert "bowtie2 --very-sensitive -X 1000 --no-unal" in out.stdout
-    # pipeline form was replaced by two argument-form samtools calls
-    assert "samtools view -b -q 10 -o" in out.stdout
+    # paper counting model: properly paired + template cap + fragment/read-2 strand
+    assert "samtools view -b -q 10 -f 2" in out.stdout
+    assert "tlen <= 1500" in out.stdout
+    assert "featureCounts -p -s 2 -t CDS" in out.stdout
     assert "samtools sort -o" in out.stdout
+    # the small-RNA fastp settings must NOT leak into the infection runs
+    assert "--disable_adapter_trimming" not in out.stdout
+    assert "--trim_poly_g" not in out.stdout
 
 
 def test_accession_gate_rejects_injection_payload():

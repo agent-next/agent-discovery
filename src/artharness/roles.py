@@ -86,6 +86,12 @@ class Roles:
             parts += ["## summary\n", self.store.read_text(rec.task_id, "summary.md"), "\n"]
         artifacts = sorted(p.name for p in self.store.artifact_dir(rec.task_id).iterdir())
         parts += ["## artifacts\n", "\n".join(artifacts) or "(none)"]
+        # paper: the shared knowledge base is "readable by every agent" —
+        # supervisors judged against what the campaign already knew (S1 finding
+        # D: only workers saw kb.context_block)
+        context = self.kb.context_block(self.store.read_text(rec.task_id, "brief.md"))
+        if context:
+            parts += ["\n## relevant knowledge base entries\n", context, "\n"]
         out = self.backend.run(SessionSpec(
             role="supervisor", task_id=rec.task_id, system_prompt=SUPERVISOR_SYSTEM,
             user_prompt="".join(parts), workdir=self.store.records / rec.task_id,
@@ -107,6 +113,10 @@ class Roles:
         entry = out.text or self._synthesized_entry(out, rec)
         title = f"findings from {rec.task_id} ({rec.label or rec.stage})"
         self.kb.add(rec.task_id, title, entry)
+        # the entry also lands in the shared task record (records.py layout
+        # documents curated.md; the KB alone is not the versioned record)
+        self.store.write_text(rec.task_id, "curated.md",
+                              f"# {title}\n\n{entry}\n")
         return out
 
     # -- editor ------------------------------------------------------------------

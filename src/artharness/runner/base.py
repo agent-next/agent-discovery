@@ -41,7 +41,22 @@ class SessionSpec:
     workdir: Path
     skills_dir: Path | None = None  # sandbox skill library (paper: ~140 guides)
     max_output_tokens: int = 0
+    disallowed_tools: list[str] | None = None  # benchmark L-ladder enforcement (C1)
     extra: dict = field(default_factory=dict)
+
+
+def build_command(spec: SessionSpec, model: str) -> list[str]:
+    """The claude CLI invocation for a session. Pure so tests can assert the
+    L-ladder tool gating without a live run."""
+    cmd = [
+        "claude", "-p", spec.user_prompt,
+        "--model", model,
+        "--append-system-prompt", spec.system_prompt,
+        "--output-format", "json",
+    ]
+    if spec.disallowed_tools:
+        cmd += ["--disallowedTools", ",".join(spec.disallowed_tools)]
+    return cmd
 
 
 @dataclass
@@ -117,14 +132,13 @@ class ClaudeCodeBackend:
         self.model = model
 
     def run(self, spec: SessionSpec) -> BackendOutput:
-        cmd = [
-            "claude", "-p", spec.user_prompt,
-            "--model", self.model,
-            "--append-system-prompt", spec.system_prompt,
-            "--output-format", "json",
-        ]
+        cmd = build_command(spec, self.model)
+        import time as _time
+
+        _t0 = _time.monotonic()
         proc = subprocess.run(cmd, cwd=spec.workdir, capture_output=True, text=True,
                               check=True)
+        duration = _time.monotonic() - _t0
         # Token fields follow claude CLI JSON output; adjust when wiring live runs.
         import json
 
@@ -136,31 +150,53 @@ class ClaudeCodeBackend:
             # The supervisor system prompt requires a literal VERDICT: line.
             # Missing/unparseable verdict returns None — the orchestrator fails
             # toward revision (grok review 2026-09-24).
-            m = re.search(r"VERDICT:\s*(accept|revise)\b", text, re.IGNORECASE)
-            if m:
+            matches = list(re.finditer(r"VERDICT:\s*(accept|revise)\b",
+                                       text, re.IGNORECASE))
+            if matches:
+                # last match wins: a restated format example must not beat the
+                # actual verdict (grok-adjacent review round: A3)
+                m = matches[-1]
                 verdict = m.group(1).lower()
                 verdict_notes = text[m.end():].strip()[:2000] or None
         elif spec.role == "editor":
             # Editors must give an explicit FILE: yes|no; None fails toward
             # not-filing (grok round-2: a live editor's silent None filed reports).
-            m = re.search(r"FILE:\s*(yes|no)\b", text, re.IGNORECASE)
-            if m:
-                verdict = m.group(1).lower()
-                verdict_notes = text[m.end():].strip()[:2000] or None
+            fmatches = list(re.finditer(r"FILE:\s*(yes|no)\b", text, re.IGNORECASE))
+            if fmatches:
+                fm = fmatches[-1]  # last match = the conclusion (A3)
+                verdict = fm.group(1).lower()
+                verdict_notes = text[fm.end():].strip()[:2000] or None
         # NB: re is imported at module top — a function-local import here made
         # `re` a local for the whole function and raised UnboundLocalError on the
         # worker path (grok round-2 finding 1).
-        proposed = re.findall(r"PROPOSE_FOLLOWUP:\s*(.+)", text) \
-            if spec.role == "worker" else []
+        proposed = []
+        if spec.role == "worker":
+            proposed = re.findall(r"PROPOSE_FOLLOWUP:\s*(.+)", text)
+        elif spec.role == "supervisor":
+            # paper A1: supervisors wrote the briefs of follow-up tasks
+            # (t0010's supervisor authored t0062). Parse full PROPOSED_TASK_BRIEF
+            # blocks, not single lines.
+            proposed = re.findall(r"PROPOSED_TASK_BRIEF:\s*(.+?)(?=\n\n|\Z)",
+                                  text, re.DOTALL)
+        output_tokens = int(usage.get("output_tokens", 0))
+        # D2: the claude CLI cannot cap output mid-run, so the 1M budget is
+        # enforced as post-hoc accounting — an over-budget attempt is flagged
+        # in its ledger record instead of being silently recorded as in-budget.
+        over = bool(spec.max_output_tokens and output_tokens > spec.max_output_tokens)
+        if over:
+            import sys
+            print(f"session {spec.task_id}: output {output_tokens} exceeds budget "
+                  f"{spec.max_output_tokens} (flagged over_budget)", file=sys.stderr)
         return BackendOutput(
             result=SessionResult(
                 role=spec.role,
                 task_id=spec.task_id,
-                duration_s=0.0,
+                duration_s=duration,
                 input_tokens_uncached=int(usage.get("input_tokens", 0)),
-                output_tokens=int(usage.get("output_tokens", 0)),
+                output_tokens=output_tokens,
                 cache_write_tokens=int(usage.get("cache_creation_input_tokens", 0)),
                 transcript_path=payload.get("transcript_path"),
+                over_budget=over,
             ),
             proposed_followups=[p.strip() for p in proposed],
             verdict=verdict,

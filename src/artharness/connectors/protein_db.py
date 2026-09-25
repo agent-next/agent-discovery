@@ -209,7 +209,7 @@ class MMseqs2Search:
     def __init__(self, mode: str = "representatives",
                  db_paths: dict[str, str | Path] | None = None,
                  mmseqs_bin: str = "mmseqs",
-                 min_seq_id: float = 0.9):  # paper: searches at 90% identity
+                 min_seq_id: float | None = None):
         if mode not in self.MODES:
             raise ValueError(f"mode must be one of {self.MODES}, got {mode!r}")
         self.mode = mode
@@ -234,13 +234,20 @@ class MMseqs2Search:
                       extra: Iterable[str] = ()) -> list[str]:
         """Build an ``mmseqs easy-search`` (default) or ``mmseqs search`` line.
 
-        NOT-IN-PAPER: binary name, temp dir and output layout are local choices;
-        the paper specifies only the target sets and the 90% identity.
+        NOT-IN-PAPER: binary name, temp dir and output layout are local choices.
+        The paper's only quoted SEARCH threshold is E <= 0.001; its "90%" describes
+        how the 365M reference SET was clustered, not a search filter. The old
+        default --min-seq-id 0.9 silently discarded every hit below 90% identity —
+        i.e. exactly the remote homologs these searches exist to find (S1 finding
+        C9). min_seq_id is now opt-in (None = omit the flag; MMseqs2's own
+        defaults apply; filter by e-value downstream).
         """
         target = str(target_db) if target_db is not None else self.resolve_target()
         sub = "easy-search" if easy else "search"
         cmd = [self.mmseqs_bin, sub, str(query_fasta), target,
-               str(result_db), str(tmp_dir), "--min-seq-id", str(self.min_seq_id)]
+               str(result_db), str(tmp_dir)]
+        if self.min_seq_id is not None:
+            cmd += ["--min-seq-id", str(self.min_seq_id)]
         cmd.extend(extra)
         return cmd
 

@@ -28,6 +28,8 @@ class SessionResult:
     output_tokens: int
     cache_write_tokens: int
     transcript_path: str | None = None
+    over_budget: bool = False  # exceeded spec.max_output_tokens (post-hoc; the
+    # claude CLI cannot cap output mid-run)
 
     def to_jsonl(self) -> str:
         return json.dumps(asdict(self))

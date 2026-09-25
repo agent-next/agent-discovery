@@ -125,16 +125,17 @@ def test_sa1_infection_flags():
         RNASEQ / "sa1_infection.sh",
         [
             "PRJNA836150",               # BioProject
-            "--disable_adapter_trimming",  # fastp: adapter trimming OFF
-            "--trim_poly_g",             # fastp: poly-G trimming ON
-            "--length_required 12",      # fastp: min length 12
+            "--length_required 30",      # fastp: paper states ONLY min length 30
             "--very-sensitive",          # bowtie2
             "-X 1000",                   # bowtie2 max insert
             "--no-unal",                 # bowtie2
             "MW218148.1",                # SA1 genome
             "NZ_CP059679.1",             # S. lentus chromosome
             "-q 10",                     # samtools MAPQ >= 10
-            "259",                       # TPM over 259 features
+            "-f 2",                      # samtools: properly paired
+            "tlen <= 1500",              # samtools: template <= 1,500 nt
+            "-p -s 2 -t CDS",            # featureCounts: fragments on read-2 strand
+            "259",                       # features: 258 CDS + array RNA
         ],
     )
 

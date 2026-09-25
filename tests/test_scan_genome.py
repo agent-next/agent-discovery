@@ -31,8 +31,33 @@ def test_scan_genome_reads_fasta(tmp_path: Path):
     genome = _planted_genome(random.Random(5))
     fasta = tmp_path / "g.fna"
     fasta.write_text(f">testgen\n{genome}\n")
-    name, seq = mod.read_fasta(fasta)
-    assert name == "testgen" and len(seq) == len(genome)
+    records = mod.read_fasta(fasta)
+    assert len(records) == 1 and records[0][0] == "testgen"
+    assert len(records[0][1]) == len(genome)
+
+
+def test_read_fasta_keeps_multi_record_files_separate(tmp_path: Path):
+    # S1 finding C7: the old reader concatenated records into one chimeric
+    # sequence under the LAST header -- coordinates stopped being contig-relative
+    mod = _load()
+    fasta = tmp_path / "two.fna"
+    fasta.write_text(">c1\nACGTACGTAC\n>c2\nTTTTGGGGCC\n")
+    records = mod.read_fasta(fasta)
+    assert [("c1", "ACGTACGTAC"), ("c2", "TTTTGGGGCC")] == records
+
+
+def test_main_scans_each_record_of_a_multi_contig_file(tmp_path: Path,
+                                                       capsys):
+    # a planted array in contig 2 must still be found (the chimeric merge would
+    # shift its coordinates into a nonexistent composite sequence)
+    mod = _load()
+    rng = random.Random(5)
+    genome = _planted_genome(rng)
+    fasta = tmp_path / "g.fna"
+    fasta.write_text(f">c1\n{'ACGT' * 50}\n>c2\n{genome}\n")
+    mod.main([str(fasta)])
+    out = capsys.readouterr().out
+    assert "== c1" in out and "== c2" in out
 
 
 def test_scan_genome_finds_planted_array():

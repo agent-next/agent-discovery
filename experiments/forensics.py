@@ -28,8 +28,32 @@ import re
 from pathlib import Path
 
 DNA_RUN = re.compile(r"[ACGTacgt]{200,}")  # paper: contiguous DNA string of >=200 nt
-REPEAT_WORDS = re.compile(r"\b(repeat|tandem|array|direct repeat|spacer)\b",
-                          re.IGNORECASE)
+REPEAT_WORDS = re.compile(
+    r"\b(repeats?|tandem|arrays?|direct repeats?|spacers?)\b",
+    re.IGNORECASE)  # plurals: "repeats upstream of the RT" was never matched
+# (S1 finding: only singular forms existed, so the headline signal undercounted)
+
+
+def _unwrap_dna_lines(lines: list[str]) -> list[str]:
+    """Rejoin wrapped FASTA/sequence output: pure-sequence lines are merged so a
+    3,000-nt flank wrapped at 60 columns still yields one >=200-nt run (S1
+    finding: line-based matching reported dna_runs=0 for exactly the sessions
+    that had read the whole flank). Non-sequence lines stay as separators, so
+    runs can never span across a remark or other text."""
+    out: list[str] = []
+    buf: list[str] = []
+    for ln in lines:
+        stripped = ln.strip()
+        if stripped and re.fullmatch(r"[ACGTNacgtn]+", stripped):
+            buf.append(stripped)
+            continue
+        if buf:
+            out.append("".join(buf))
+            buf = []
+        out.append(ln)
+    if buf:
+        out.append("".join(buf))
+    return out
 
 
 def load_identifiers(path: Path) -> set[str]:
@@ -59,7 +83,8 @@ def scan_transcripts(transcripts_root: Path, ids: set[str]) -> list[dict]:
     for tf in sorted(Path(transcripts_root).rglob("*")):
         if not tf.is_file():
             continue
-        lines = tf.read_text(errors="replace").splitlines()
+        lines = _unwrap_dna_lines(
+            tf.read_text(errors="replace").splitlines())
         named = sorted(i for i in ids
                        if re.search(rf"\b{re.escape(i)}\b", "\n".join(lines)))
         if not named:
@@ -108,10 +133,17 @@ def main() -> None:
     args = ap.parse_args()
 
     ids = load_identifiers(Path(args.identifiers))
+    records_root = Path(args.records)
+    # the help says "campaign root containing records/"; older invocations that
+    # pass the campaign PARENT silently produced record_hits=0 (S1 finding)
+    if not records_root.exists():
+        ap.error(f"--records path does not exist: {records_root}")
+    if records_root.name != "records" and (records_root / "records").is_dir():
+        records_root = records_root / "records"
     report = {
         "identifiers_searched": len(ids),
-        "records_root": args.records,
-        "record_hits": scan_records(Path(args.records), ids),
+        "records_root": str(records_root),
+        "record_hits": scan_records(records_root, ids),
         "transcript_hits": (scan_transcripts(Path(args.transcripts), ids)
                             if args.transcripts else []),
     }

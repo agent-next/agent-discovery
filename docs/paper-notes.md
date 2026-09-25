@@ -37,7 +37,9 @@ or press coverage.
   16 deep dives, 98 follow-ups.
 - 949 sessions = launch 1 + worker 414 + supervisor 375 + curator 107 + editor 52.
 - 76.9 agent-hours total (63.7 in worker sessions).
-- Tokens: 11.3M uncached input + 14.9M output + 189.5M cache-write = 215.6M; cache
+- Tokens: 11.3M uncached input + 14.9M output + 189.5M cache-write = 215.6M as
+  printed (components sum to 215.7M at display precision — the PDF rounds
+  independently); cache
   reads excluded. 21.5 h wall clock, no human intervention.
 - Session logs: 7,578 shell commands, 696 DB queries, 131 literature searches,
   61 web requests.
@@ -162,9 +164,15 @@ or press coverage.
 
 ## RNA-seq (Methods p.36-37; Results p.8)
 - Public data: BioProject PRJNA836150 (SA1 infection of Staphylococcus lentus,
-  12 libraries, 3 time points). fastp 1.3.6 (adapter trimming off, poly-G trim, min
-  length 12); Bowtie2 --very-sensitive -X 1000 --no-unal vs SA1 genome MW218148.1 +
-  S. lentus chromosome NZ_CP059679.1; MAPQ ≥10; TPM over 259 features.
+  12 paired-end STRAND-SPECIFIC libraries, 3 time points). fastp 1.3.6 (minimum
+  length 30 nt ONLY -- adapter/poly-G unstated for infection runs); Bowtie2
+  --very-sensitive -X 1000 --no-unal vs SA1 genome MW218148.1 + S. lentus
+  chromosome NZ_CP059679.1; properly paired, MAPQ ≥10, template ≤1,500 nt kept as
+  fragments; each fragment counted once on the strand of read 2 (the sense read),
+  assigned to the feature containing its midpoint; features = 258 SA1 CDS + array
+  RNA (positions 9,448-10,646) = 259; TPM from sense fragments.
+  [Correction 2026-09-24 S1 review: the old bullet here misattributed the
+  SMALL-RNA fastp settings (adapter off/poly-G/min-12) to this dataset.]
 - Array-derived RNAs = 8% of intracellular phage RNA at 15 min post infection.
 - Small-RNA-seq (wet lab): plasmids in E. coli DH10B; native-locus positions
   9,448–12,951 under PLtetO-1 on pSC101 (carbenicillin); heterologous J23119 promoter

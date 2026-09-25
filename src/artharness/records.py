@@ -28,13 +28,15 @@ from pathlib import Path
 
 class TaskStatus(StrEnum):
     OPEN = "open"  # brief written, not yet dispatched
-    PLANNED = "planned"  # worker wrote a plan
+    PLANNED = "planned"  # reserved (worker plan.md is written atomically with
+    # the summary; no separate PLANNED transition exists in the loop)
     EXECUTED = "executed"  # worker submitted summary + artifacts
     REVISING = "revising"  # supervisor returned it for revision
     ACCEPTED = "accepted"  # supervisor accepted the result
     CURATED = "curated"  # curator entered findings into the knowledge base
     COMPLETED = "completed"  # terminal, incl. reports after editor review
-    REJECTED = "rejected"  # killed at triage with a written reason
+    REJECTED = "rejected"  # reserved (triage rejections never create a record;
+    # the written reason lives in triage-rejection-*.md of the parent task)
     STALLED = "stalled"  # exceeded revision/gate limits
 
 
@@ -132,15 +134,32 @@ class RecordStore:
     # -- internals ---------------------------------------------------------
     def _write_meta(self, rec: TaskRecord) -> None:
         path = self.records / rec.task_id / "meta.json"
-        path.write_text(json.dumps(rec.to_meta(), indent=2, sort_keys=True) + "\n")
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(rec.to_meta(), indent=2, sort_keys=True) + "\n")
+        tmp.replace(path)  # atomic: torn meta.json used to brick get()/list_tasks()
 
     def commit(self, message: str) -> None:
         if not self.use_git:
             return
-        subprocess.run(["git", "add", "-A", "."], cwd=self.root, check=True,
-                       capture_output=True)
-        subprocess.run(["git", "commit", "-qm", message, "--allow-empty"], cwd=self.root,
-                       check=True, capture_output=True)
+        try:
+            subprocess.run(
+                ["git", "add", "-A", "--", str(self.records.relative_to(self.root))],
+                cwd=self.root, check=True, capture_output=True)
+            subprocess.run(["git", "commit", "-qm", message, "--", "records"],
+                           cwd=self.root, check=True, capture_output=True)
+        except (subprocess.CalledProcessError, OSError) as exc:
+            # docstring contract: commits are best-effort. A missing user.email or
+            # an index.lock contention must not kill the campaign mid-transition.
+            import sys
+            print(f"record-store: git commit failed (continuing): {exc}",
+                  file=sys.stderr)
 
     def next_task_id(self, n: int) -> str:
-        return f"t{n:04d}"
+        # highest existing id + 1 wins over a positional counter: if a task dir
+        # is ever removed mid-campaign, a positional counter collides with a
+        # surviving higher id and create() raises
+        highest = n
+        for p in self.records.iterdir():
+            if p.is_dir() and p.name.startswith("t") and p.name[1:].isdigit():
+                highest = max(highest, int(p.name[1:]) + 1)
+        return f"t{highest:04d}"

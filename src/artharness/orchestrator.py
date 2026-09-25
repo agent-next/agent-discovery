@@ -79,6 +79,10 @@ class Orchestrator:
         self.gates = gates
         self.triage = triage or (lambda brief, parent: (True, ""))
         self.queue: deque[str] = deque()
+        # UNIMPLEMENTED (paper ran <=58 concurrent sessions): the dispatch loop
+        # is strictly sequential, so this semaphore never contends. Kept as the
+        # seam for a future threaded dispatch; do not cite max_concurrent as a
+        # reproduced behavior.
         self._sem = threading.Semaphore(cfg.max_concurrent_sessions)
         self.report = CampaignReport()
 
@@ -88,6 +92,12 @@ class Orchestrator:
         """Encode the research brief as a chain of seeded tasks (paper: 5 stage tasks,
         16 deep dives). Each stage's tasks enqueue only after the previous stage's
         scripted gate passes."""
+        # brief provenance is part of the versioned record (S1 finding D: the
+        # mandate existed only as prose in the brief; nothing enforced it)
+        (self.store.root / "campaign.md").write_text(
+            f"# campaign record\n\n{self.cfg.brief_provenance}\n\n"
+            "This campaign runs a RECONSTRUCTED research brief; it is not the "
+            "verbatim Anthropic brief (Supplementary Note 1, unpublished).\n")
         opened: dict[str, list[str]] = {}
         for i, stage in enumerate(STAGES):
             for prev in STAGES[:i]:
@@ -103,12 +113,14 @@ class Orchestrator:
             opened[stage] = []
             for brief in briefs.get(stage, []):
                 rec = self._new_task(stage, brief, TaskOrigin.SEED)
-                opened[stage].append(rec.task_id)
+                if rec is not None:  # budget cap may refuse the task (A4)
+                    opened[stage].append(rec.task_id)
         deep_dive_labels = deep_dive_labels or {}
         for stage, labels in deep_dive_labels.items():
             for label in labels:
                 rec = self._new_task(stage, f"Deep dive: {label}", TaskOrigin.DEEP_DIVE)
-                opened.setdefault(stage, []).append(rec.task_id)
+                if rec is not None:
+                    opened.setdefault(stage, []).append(rec.task_id)
 
     # -- task creation / triage ------------------------------------------------
     def _new_task(self, stage: str, brief: str, origin: TaskOrigin,
@@ -138,8 +150,10 @@ class Orchestrator:
                            label=f"followup by {proposed_by}")
         else:
             self.report.rejected_at_triage += 1
+            seq = sum(1 for _ in
+                      self.store.records.glob(parent.task_id + "/triage-rejection-*.md")) + 1
             self.store.write_text(
-                parent.task_id, f"triage-rejection-{len(self.store.list_tasks())}.md",
+                parent.task_id, f"triage-rejection-{seq}.md",
                 f"REJECTED AT TRIAGE\nreason: {reason}\n\nbrief:\n{brief}\n")
             self.store.commit(f"triage({parent.task_id}): reject follow-up — {reason}")
 
@@ -151,14 +165,24 @@ class Orchestrator:
             rec = self.store.get(task_id)
             with self._sem:
                 self._dispatch(rec)
+        # S3 finding 1: the queue is a SUBSET of the store (run_stage_chain
+        # appends every created task to both) — adding them double-counted.
+        self.report.tasks_total = len(self.store.list_tasks())
         return self.report
 
     def _dispatch(self, rec: TaskRecord) -> None:
+        # One loop per WORKER pass. Every pass — initial or revision — must pass
+        # the completion check before the supervisor reviews it (S3 findings 3/4:
+        # the old revision path re-entered the supervisor loop with no summary,
+        # so an accepting supervisor sent an empty task to the curator and the
+        # completion-check stall mode was unreachable after any revision).
         while True:
             out = self.roles.worker(rec)
             self.ledger.record(out.result)
-            if not (self.store.records / rec.task_id / "summary.md").exists():
-                # A worker that produced no summary counts as a failed completion check
+
+            summary = self.store.records / rec.task_id / "summary.md"
+            if not summary.exists():
+                # A worker pass with no summary counts as a failed completion check
                 # (paper stall mode 2: "after ten failed completion checks").
                 rec.gate_failures += 1
                 rec.status = TaskStatus.OPEN
@@ -167,61 +191,75 @@ class Orchestrator:
                 if rec.gate_failures >= self.cfg.max_gate_failures:
                     self._stall(rec, "completion checks")
                     return
-                continue
+                # S4 finding 1: follow-ups from a FAILED pass must not enter
+                # triage — with retry loops a failing worker would re-propose
+                # every pass and explode the task budget. Triage happens only
+                # for a pass that passed the check (below).
+                continue  # re-dispatch the worker
+
+            # worker-proposed follow-ups enter triage (valid passes only)
+            for fu in out.proposed_followups:
+                self.propose_followup(fu, rec, proposed_by="worker")
 
             rec.status = TaskStatus.EXECUTED
             self.store.update(rec, f"task({rec.task_id}): worker submitted summary")
-            break
 
-        # worker-proposed follow-ups enter triage
-        for fu in out.proposed_followups:
-            self.propose_followup(fu, rec, proposed_by="worker")
+            # supervisor review. Only an explicit "accept" accepts; a missing or
+            # unparseable verdict fails toward revision (grok review 2026-09-24:
+            # the old code treated None as accept, so live backends that omitted
+            # the verdict could never trigger revisions or stalls).
+            revise = True
+            while revise:
+                sout = self.roles.supervisor(rec)
+                self.ledger.record(sout.result)
+                # supervisor-authored follow-up briefs enter triage too (paper
+                # A1: the t0010 supervisor wrote the t0062 brief that led to ART)
+                for fu in sout.proposed_followups:
+                    self.propose_followup(fu, rec, proposed_by="supervisor")
+                if sout.verdict != "accept":
+                    rec.revisions += 1
+                    rec.status = TaskStatus.REVISING
+                    self.store.write_text(
+                        rec.task_id, f"verdict-r{rec.revisions}.md",
+                        f"VERDICT: revise ({sout.verdict or 'no verdict parsed'})"
+                        f"\n\n{sout.verdict_notes or ''}\n")
+                    self.store.update(rec, f"task({rec.task_id}): supervisor revise "
+                                           f"({rec.revisions}/{self.cfg.max_revisions})")
+                    if rec.revisions >= self.cfg.max_revisions:
+                        self._stall(rec, "revisions")
+                        return
+                    # The pass-1 summary is a stale output once "revise" is
+                    # issued: withdraw it so the revision pass must pass the
+                    # same completion check instead of silently re-presenting
+                    # the old summary.
+                    summary.unlink(missing_ok=True)
+                    break  # back to the worker pass (outer loop)
+                revise = False
 
-        # supervisor review loop. Only an explicit "accept" accepts; a missing or
-        # unparseable verdict fails toward revision (grok review 2026-09-24: the
-        # old code treated None as accept, so live backends that omitted the
-        # verdict could never trigger revisions or stalls).
-        while True:
-            sout = self.roles.supervisor(rec)
-            self.ledger.record(sout.result)
-            if sout.verdict != "accept":
-                rec.revisions += 1
-                rec.status = TaskStatus.REVISING
-                self.store.write_text(
-                    rec.task_id, f"verdict-r{rec.revisions}.md",
-                    f"VERDICT: revise ({sout.verdict or 'no verdict parsed'})"
-                    f"\n\n{sout.verdict_notes or ''}\n")
-                self.store.update(rec, f"task({rec.task_id}): supervisor revise "
-                                       f"({rec.revisions}/{self.cfg.max_revisions})")
-                if rec.revisions >= self.cfg.max_revisions:
-                    self._stall(rec, "revisions")
-                    return
-                # worker revises (one more worker pass); follow-ups still queue
-                out = self.roles.worker(rec)
-                self.ledger.record(out.result)
-                for fu in out.proposed_followups:
-                    self.propose_followup(fu, rec, proposed_by="worker")
-                continue
-            break
+            if not revise:
+                self.store.write_text(rec.task_id, "verdict.md",
+                                      f"VERDICT: accept\n\n{sout.verdict_notes or ''}\n")
+                rec.status = TaskStatus.ACCEPTED
+                self.store.update(rec, f"task({rec.task_id}): supervisor accepted")
+                if rec.revisions >= 1:
+                    self.report.revised += 1
 
-        self.store.write_text(rec.task_id, "verdict.md",
-                              f"VERDICT: accept\n\n{sout.verdict_notes or ''}\n")
-        rec.status = TaskStatus.ACCEPTED
-        self.store.update(rec, f"task({rec.task_id}): supervisor accepted")
-        if rec.revisions >= 1:
-            self.report.revised += 1
+                # curator enters findings into the shared knowledge base
+                cout = self.roles.curator(rec)
+                self.ledger.record(cout.result)
+                rec.status = TaskStatus.CURATED
+                self.store.update(rec, f"task({rec.task_id}): curated")
 
-        # curator enters findings into the shared knowledge base
-        cout = self.roles.curator(rec)
-        self.ledger.record(cout.result)
-        rec.status = TaskStatus.CURATED
-        self.store.update(rec, f"task({rec.task_id}): curated")
-
-        self.report.completed += 1
+                self.report.completed += 1
+                return
 
     def _stall(self, rec: TaskRecord, mode: str) -> None:
         rec.status = TaskStatus.STALLED
         self.store.update(rec, f"task({rec.task_id}): STALLED after {mode}")
+        if rec.revisions >= 1:
+            # paper counts a task "revised >= 1x" whenever revisions happened,
+            # including tasks that later stalled (49/119 figure)
+            self.report.revised += 1
         self.report.stalled += 1
 
     # -- reports -----------------------------------------------------------------
@@ -229,6 +267,14 @@ class Orchestrator:
         """Write a draft report and route it through editor review (52 editor sessions
         for 19 reports in the paper). Editor-rejected reports are NOT filed."""
         rec = self.store.get(task_id)
+        # S3 finding 2: TaskStatus is a StrEnum — `<` compares the STRING values
+        # alphabetically, not the lifecycle order, so the old guard accepted
+        # ACCEPTED (never curated) and refused EXECUTED... by accident. Compare
+        # states explicitly.
+        if rec.status is not TaskStatus.CURATED:
+            raise ValueError(f"task {task_id} not ready for a report "
+                             f"(status {rec.status}); the curator step must "
+                             f"complete first")
         draft = self.store.write_text(task_id, "report-draft.md", report_text)
         eout = self.roles.editor(task_id, draft)
         self.ledger.record(eout.result)

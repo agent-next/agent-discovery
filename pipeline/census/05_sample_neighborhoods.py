@@ -110,6 +110,12 @@ def sample_proportional(
     each clade; the paper does not give the allocation rule.
     """
     small = [a for k, v in clades.items() if len(v) < take_whole_below for a in v]
+    # NOT-IN-PAPER: when small clades alone exceed the quota (30 clades x 29
+    # members = 870 > 700 -- probed by the S1 review), the budget wins and the
+    # small-clade pool is sampled down to `total`; the paper's clade structure
+    # never triggered this branch.
+    if len(small) > total:
+        small = rng.sample(small, total)
     big = {k: v for k, v in clades.items() if len(v) >= take_whole_below}
     out = list(small)
     remaining = total - len(out)

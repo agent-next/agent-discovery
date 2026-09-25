@@ -36,6 +36,12 @@ class PaperRef:
     is_open_access: bool = False
     in_pmc: bool = False
 
+    @staticmethod
+    def _flag(v: str | None) -> bool:
+        # live API returns UPPERCASE "Y"/"N" (probed 2026-09-24); lowercase
+        # comparisons made every MED record look non-OA (S1 finding, live-verified)
+        return (v or "").strip().lower() == "y"
+
     @classmethod
     def from_result(cls, r: dict) -> PaperRef:
         return cls(
@@ -47,8 +53,8 @@ class PaperRef:
             authors=r.get("authorString", ""),
             journal=r.get("journalTitle"),
             year=r.get("pubYear"),
-            is_open_access=r.get("isOpenAccess") == "y",
-            in_pmc=r.get("inPMC") == "y" or r.get("source") == "PMC",
+            is_open_access=cls._flag(r.get("isOpenAccess")),
+            in_pmc=cls._flag(r.get("inPMC")) or r.get("source") == "PMC",
         )
 
     @property
@@ -80,14 +86,35 @@ class EuropePMCClient:
         with urllib.request.urlopen(url, timeout=30) as resp:
             return resp.read().decode("utf-8")
 
+    MAX_PAGE = 1000  # Europe PMC pageSize cap (errCode 404 above it, probed)
+
     def search(self, query: str, limit: int = 25) -> list[PaperRef]:
-        """``GET /search?query=...&format=json`` -> parsed ``resultList.result``."""
-        url = f"{self.BASE}/search?" + urlencode(
-            {"query": query, "format": "json", "pageSize": limit}
-        )
-        payload = json.loads(self._get(url))
-        results = payload.get("resultList", {}).get("result", [])
-        return [PaperRef.from_result(r) for r in results]
+        """``GET /search?query=...&format=json`` -> parsed ``resultList.result``.
+
+        Errors must not masquerade as zero hits: an ``errCode`` payload raises
+        (HTTP 200 error envelopes are how this API reports bad params/rate
+        limits — probed 2026-09-24 with pageSize=2000). Pages past the first are
+        followed via ``nextCursorMark`` so callers actually get ``limit`` hits.
+        """
+        page_size = min(limit, self.MAX_PAGE)
+        out: list[PaperRef] = []
+        cursor: str | None = None
+        while len(out) < limit:
+            params = {"query": query, "format": "json", "pageSize": page_size}
+            if cursor:
+                params["cursorMark"] = cursor
+            payload = json.loads(self._get(f"{self.BASE}/search?" + urlencode(params)))
+            if "errCode" in payload or "errMsg" in payload:
+                raise RuntimeError(
+                    f"Europe PMC error {payload.get('errCode')}: "
+                    f"{payload.get('errMsg')}")
+            results = payload.get("resultList", {}).get("result", [])
+            out.extend(PaperRef.from_result(r) for r in results)
+            nxt = payload.get("nextCursorMark")
+            if not results or not nxt or nxt == cursor:
+                break
+            cursor = nxt
+        return out[:limit]
 
     def full_text_url(self, ref: PaperRef) -> str | None:
         """fullTextXML endpoint when the record is in PMC, else ``None``."""

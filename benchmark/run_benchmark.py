@@ -27,7 +27,14 @@ from typing import Any
 if __package__ in (None, ""):  # executed as a script: python3 benchmark/run_benchmark.py
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from benchmark.levels import LEVELS, Environment, build_environment, write_synthetic_inputs
+from benchmark.levels import (
+    LEVELS,
+    Environment,
+    build_environment,
+    disallowed_for,
+    materialize,
+    write_synthetic_inputs,
+)
 from benchmark.rubric import Finding, Rubric, Submission, default_rubric, grade_submission
 
 # paper Methods "Fixed-input benchmark" p.38
@@ -70,6 +77,7 @@ def default_backend(model: str) -> Backend:
             user_prompt=spec.prompt,
             workdir=spec.run_dir,
             max_output_tokens=spec.max_output_tokens,
+            disallowed_tools=disallowed_for(spec.env),  # enforce the L ladder (C1)
         ))
         # The session is instructed to write report.md + submission.json itself.
         report_path = spec.run_dir / "report.md"
@@ -98,7 +106,7 @@ def submission_from_dict(data: dict[str, Any],
             claim=f["claim"],
             evidence=f.get("evidence", ""),
             confidence=f.get("confidence", 1.0),
-            asserted=f.get("asserted", True),
+            asserted=f.get("asserted"),
         )
         for f in data.get("findings", [])
     ]
@@ -108,7 +116,22 @@ def submission_from_dict(data: dict[str, Any],
 def run_attempt(spec: AttemptSpec, backend: Backend, judge: Judge,
                 rubric: Rubric) -> dict[str, Any]:
     spec.run_dir.mkdir(parents=True, exist_ok=True)
-    out = backend(spec)
+    materialize(spec.env, spec.run_dir)  # C1: L3+ inputs must be IN the run dir
+    base = {
+        "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "model": spec.model,
+        "level": spec.level,
+        "attempt": spec.attempt,
+        "run_dir": str(spec.run_dir),
+        "max_output_tokens": spec.max_output_tokens,
+    }
+    try:
+        out = backend(spec)
+    except Exception as exc:  # infra failure must not grade as a model zero (C)
+        base.update({"status": "backend_error", "error": str(exc)[:500],
+                     "score": None, "recognized_repeat_array": None,
+                     "asserted": None})
+        return base
     report_path = spec.run_dir / "report.md"
     submission_path = spec.run_dir / "submission.json"
     report_path.write_text(out.get("report", ""))
@@ -116,19 +139,15 @@ def run_attempt(spec: AttemptSpec, backend: Backend, judge: Judge,
     submission_path.write_text(json.dumps(submission_data, indent=2) + "\n")
     submission = submission_from_dict(submission_data, report_path=str(report_path))
     grade = judge(submission, rubric)
-    return {
-        "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "model": spec.model,
-        "level": spec.level,
-        "attempt": spec.attempt,
-        "run_dir": str(spec.run_dir),
-        "max_output_tokens": spec.max_output_tokens,
+    base.update({
+        "status": "ok",
         "score": grade.score,
         "recognized_repeat_array": grade.recognized_repeat_array,
         "asserted": grade.asserted,
         "report_path": str(report_path),
         "submission_path": str(submission_path),
-    }
+    })
+    return base
 
 
 def format_matrix(models: list[str], levels: list[str], attempts: int) -> str:
@@ -143,7 +162,8 @@ def format_matrix(models: list[str], levels: list[str], attempts: int) -> str:
 def run_benchmark(models: list[str], levels: list[str], attempts: int,
                   outdir: Path, seed: int = 0, backend: Backend | None = None,
                   judge: Judge | None = None,
-                  inputs_dir: Path | None = None) -> list[dict[str, Any]]:
+                  inputs_dir: Path | None = None,
+                  allow_synthetic: bool = False) -> list[dict[str, Any]]:
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     rubric = default_rubric()
@@ -153,17 +173,32 @@ def run_benchmark(models: list[str], levels: list[str], attempts: int,
     for level in levels:
         ldir = inputs_root / level
         if not (ldir / "loci").exists():
-            # Synthetic fallback so offline/demo runs work; real runs pass --inputs.
+            if not allow_synthetic:
+                # S1 finding C: silent fabrication graded synthetic fixtures as
+                # if they were the paper's 96 loci. Opt in explicitly.
+                raise FileNotFoundError(
+                    f"no inputs at {ldir}/loci — pass --inputs with the real "
+                    "benchmark inputs, or --synthetic to fabricate fixtures")
             write_synthetic_inputs(ldir)
         envs[level] = build_environment(level, ldir)
     records = []
     results_path = outdir / "results.jsonl"
+    done: set[tuple[str, str, int]] = set()
+    if results_path.exists():  # resume: (model, level, attempt) cells already on disk
+        for line in results_path.read_text().splitlines():
+            try:
+                r = json.loads(line)
+                done.add((r["model"], r["level"], r["attempt"]))
+            except (json.JSONDecodeError, KeyError):
+                continue
     with results_path.open("a") as fh:
         for model in models:
             be = backend if backend is not None else default_backend(model)
             for level in levels:
                 env = envs[level]
                 for i in range(1, attempts + 1):
+                    if (model, level, i) in done:
+                        continue  # append mode used to duplicate cells on re-run
                     spec = AttemptSpec(
                         model=model, level=level, attempt=i,
                         run_dir=outdir / "runs" / model / level / f"attempt_{i:03d}",
@@ -195,8 +230,10 @@ def main(argv: list[str] | None = None) -> int:
                         "{report, submission} (default: live ClaudeCodeBackend, "
                         "requires ARTHARNESS_ALLOW_LIVE=1)")
     p.add_argument("--inputs", default=None,
-                   help="dir with real benchmark inputs (default: <outdir>/inputs; "
-                        "synthetic fixtures are written there if absent)")
+                   help="dir with real benchmark inputs (default: <outdir>/inputs)")
+    p.add_argument("--synthetic", action="store_true",
+                   help="explicitly fabricate synthetic fixtures when --inputs is "
+                        "absent (S1: silent fabrication graded fake data)")
     p.add_argument("--dry-run", action="store_true",
                    help="print the attempt matrix without running")
     args = p.parse_args(argv)
@@ -216,6 +253,7 @@ def main(argv: list[str] | None = None) -> int:
         models=models, levels=levels, attempts=args.attempts,
         outdir=Path(args.outdir), seed=args.seed, backend=backend,
         inputs_dir=Path(args.inputs) if args.inputs else None,
+        allow_synthetic=args.synthetic,
     )
     print(f"wrote {len(records)} attempt records to "
           f"{Path(args.outdir) / 'results.jsonl'}")

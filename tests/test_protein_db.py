@@ -76,12 +76,22 @@ def test_proteins_beside_anchors_on_pfam():
 
 
 def test_mmseqs2_build_command_both_modes():
+    # default omits --min-seq-id: the paper's only quoted SEARCH threshold is
+    # E <= 0.001; the old 0.9 default discarded remote homologs (S1 C9)
     for mode, target in (("representatives", "/db/reps"),
                          ("reference365m", "/db/ref365m")):
         s = MMseqs2Search(mode=mode, db_paths={mode: target})
         cmd = s.build_command("query.fasta")
         assert cmd == ["mmseqs", "easy-search", "query.fasta", target,
-                       "resultDB", "tmp", "--min-seq-id", "0.9"]
+                       "resultDB", "tmp"]
+        assert not any("min-seq-id" in c for c in cmd)
+
+
+def test_mmseqs2_min_seq_id_is_opt_in():
+    s = MMseqs2Search(mode="representatives", db_paths={"representatives": "/db/reps"},
+                      min_seq_id=0.5)
+    cmd = s.build_command("query.fasta")
+    assert cmd[-2:] == ["--min-seq-id", "0.5"]
 
 
 def test_mmseqs2_run_requires_execute_flag():

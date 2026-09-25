@@ -15,12 +15,12 @@ transcriptases with tandem repeat arrays". Facts ledger: `docs/paper-notes.md`.
 | 6 | Triage queue, release or reject with written reason | Methods p.28 | `Orchestrator.propose_followup` + `TriagePolicy`, `triage-rejection-*.md` | done |
 | 7 | Curator → shared knowledge base → relevant entries into later prompts | Methods p.28 | `knowledge.KnowledgeBase` (term-overlap retrieval) | done (retrieval scheme NOT-IN-PAPER) |
 | 8 | Editor review before filing reports | Methods p.28 | `Orchestrator.file_report`, `Roles.editor` | done |
-| 9 | Concurrency ≤58, sandbox 60 CPU/192 GiB/no GPU | Methods p.28 | `config.CampaignConfig`, dispatch semaphore | done |
-| 10 | Connectors: protein DB, literature, KB, GPU queue | Methods p.28 | `connectors/` | Devin PR |
-| 11 | ~140 skills; 7 survey guides named | Methods p.28 | `skills/` (12 guides; full 140-library out of scope) | Devin PR (GAP-2) |
+| 9 | Concurrency ≤58, sandbox 60 CPU/192 GiB/no GPU | Methods p.28 | `config.CampaignConfig` | done (values pinned by test); dispatch is sequential — concurrency UNIMPLEMENTED |
+| 10 | Connectors: protein DB, literature, KB, GPU queue | Methods p.28 | `connectors/` | done (offline-first clients; live lanes per connector header) |
+| 11 | ~140 skills; 7 survey guides named | Methods p.28 | `skills/` (12 guides; full 140-library out of scope) | done (GAP-2) |
 | 12 | Campaign accounting: sessions/roles, agent-hours, token classes | Methods p.30 | `accounting.SessionLedger` | done |
 | 13 | Report tournament: 342 games, rubric weights, soundness auto-lose, BTL | Methods p.30 | `tournament.py` | done |
-| 14 | RT census: 52 HMMs → 203,381 → 198,290 clusters → 9 classes | Methods p.29 | `pipeline/census/01–04` | Devin PR |
+| 14 | RT census: 52 HMMs → 203,381 → 198,290 clusters → 9 classes | Methods p.29 | `pipeline/census/01–04` | done |
 | 15 | Neighborhood sampling: 7,308 anchors → 10,983 loci | Methods p.29-30 | `pipeline/census/05` | Devin PR |
 | 16 | Partner scoring: 3 filters, controls, 3,564 → 16 | Methods p.30 | `pipeline/census/06` | Devin PR |
 | 17 | ART family definition: QQM14740.1 → 95 members | Methods p.31-32 | `pipeline/art_family/family_definition.sh` | Devin PR |
@@ -39,8 +39,10 @@ transcriptases with tandem repeat arrays". Facts ledger: `docs/paper-notes.md`.
 1. **Unit green**: every module tested offline (`make check`).
 2. **Dry-run fidelity**: pipeline wrappers print paper-exact commands (`--dry-run`).
 3. **Data-anchored**: array code recovers planted synthetic ART arrays; on real data,
-   the MarsHill locus (MW248466.1) must yield a 14-copy array call (script provided
-   with the family pipeline; needs ENA download).
+   `scripts/scan_genome.py` on the downloaded MarsHill genome (MW248466.1, ENA) must
+   yield its 5-copy shuffle-controlled array call (seed ATATGAATACGTAT; recorded in
+   `task-runs/20260924-devin-build/real-genome-scan.txt`). [Corrected 2026-09-24 S1
+   review: this line previously claimed a 14-copy call from a nonexistent script.]
 4. **Benchmark parity**: L1–L3 rerun with Fable 5; compare per-level recognition rates
    against the paper's ranges (L1 ≥90%, L3 model-dependent 32–96%).
 5. **Campaign scale**: full 119-task campaign (GAP-4 compute + GAP-1 brief fidelity).
@@ -49,7 +51,9 @@ transcriptases with tandem repeat arrays". Facts ledger: `docs/paper-notes.md`.
 
 ## 3. Budget to rerun (from paper numbers)
 
-- Full campaign ≈ 215.6M tokens (11.3M in + 14.9M out + 189.5M cache-write),
+- Full campaign ≈ 215.6M tokens (components 11.3M in + 14.9M out + 189.5M
+  cache-write sum to 215.7M at display precision — the PDF's own rounding; the
+  stated total 215.6M is what the paper prints),
   949 sessions, 21.5 h wall clock at ≤58 concurrent. At current frontier Claude API
   pricing: low-thousands of USD per campaign (estimate, not quoted).
 - Benchmark (3,500 isolated attempts, ≤1M output tokens each) is the expensive half if
