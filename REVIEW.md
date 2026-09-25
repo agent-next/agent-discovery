@@ -1,6 +1,6 @@
 # REVIEW.md — repo-specific review rules
 
-Scope: agent-next/agent-discovery (reproduction of Yoon et al. 2026, the Anthropic
+Scope: agent-next/art-discovery-repro (reproduction of Yoon et al. 2026, the Anthropic
 ART paper). Every finder/verifier prompt must consult this file.
 
 ## Always-check (confirmed bug classes from the 5-round grok review, 2026-09-24)
