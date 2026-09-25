@@ -34,15 +34,31 @@ Merge stays owner-gated.
      resurrected the file) — deletes after; counters pin the stall MODE
   6. `_chains` refused a leading skipped copy (0,400,600 chained nothing) —
      first-gap reading explored both ways, following-gap 30% check arbitrates
-- **S4 delta re-verify**: grok-4.7 re-checked ONLY 77ed5d4 by execution
-  (`../20260924-myreview-s3/grok-s4-output.md`). VERDICT: SEE BELOW (filled at close).
+- **S4 delta re-verify (round 1)**: grok-4.7 re-checked ONLY 77ed5d4 by
+  execution (`../20260924-myreview-s3/grok-s4-output.md`). All six findings
+  RESOLVED — each power-verified by reverting the product hunk in a scratch
+  copy and watching the test fail. VERDICT: **FIX-FIRST** with 2 NEW majors
+  introduced by 77ed5d4 itself:
+  1. (0.93) worker follow-ups from a FAILED pass still entered triage —
+     with retries a failing worker re-proposed every pass and exploded the
+     task budget (probe: 30 tasks / 29 follow-ups from one seed task)
+  2. (0.88) `_chains` seeded first gaps from positions[j], j > i+1, stepping
+     over DETECTED copies without counting them against the single-skip
+     allowance (probes 0,180,200,400,600,800 / 0,200,250,400,600,800)
+  Both fixed in a151775 (triage moved after the check; chains consume
+  consecutive detections; +2 power tests, 167 -> 169).
+- **S4 delta round 2**: grok-4.7 re-checked ONLY a151775 by execution
+  (`../20260924-myreview-s3/grok-s4b-output.md`). Both findings RESOLVED
+  (revert-power proven both ways; grok's two original probes clean; exhaustive
+  4004-input 50-nt-grid chain check: 0 non-consecutive chains). `make check`
+  169 passed at the reviewer. VERDICT: **SHIP**. "a151775 里的新问题: 没有。"
 
 ## Final votes (S6)
 
 | Vote | Model | Method | Verdict |
 | --- | --- | --- | --- |
-| Independent reviewer | grok-4.7 (reviewer lane, lanes.tsv) | execution: make check + per-finding probes | S3: FIX-FIRST -> fixed -> S4: (filled at close) |
-| Session model (this agent) | Claude (session) | execution: 167 passed, ruff clean; each finder finding re-derived from source before fixing; probes in test suite | SHIP (pending S4) |
+| Independent reviewer | grok-4.7 (reviewer lane, lanes.tsv) | execution: make check + per-finding probes + revert-based power proofs | S3: FIX-FIRST -> S4: FIX-FIRST -> S4' (a151775): **SHIP** |
+| Session model (this agent) | Claude (session) | execution: closing `make check` 169 passed + ruff clean on a151775; every finding re-derived from source before fixing; per-finding probes in the suite | **SHIP** |
 
 Writer != reviewer holds: the S2 fixes were written by the session agent; the
 S3/S4 votes are grok. The S1 findings were produced by Devin + in-session
