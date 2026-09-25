@@ -1,11 +1,35 @@
 # AGENTS.md — art-harness
 
+Org rules: https://github.com/agent-next/.github/blob/main/AGENT-STANDARD.md (hard limits, PR/merge policy).
+
 ## What this repo is
 
 A reproduction of the Anthropic ART autonomous-research-harness paper (see README).
 Parameter sources are cited as `paper p.NN` / `paper Methods §name` — every constant in
 `pipeline/` and `benchmark/` traces to the paper PDF (local copy referenced in
 `docs/paper-notes.md`).
+
+## Orient
+
+- `git status --short`, `git branch --show-current`, `git worktree list`,
+  `gh pr list --state open`.
+- Read first: `README.md`, `REPRODUCTION.md` (paper-element → component map),
+  `TASKS.md` (build queue).
+
+## Setup
+
+`make setup` creates `.venv` and installs the package with dev extras
+(`pip install -e '.[dev]'`) — the same install CI runs. Requires python3 >= 3.11
+(CI pins 3.12). `uv.lock` is committed; `uv sync --extra dev` gives the pinned
+equivalent.
+
+## Check
+
+`make check` — the gate `.github/workflows/ci.yml` runs: `ruff check src tests
+pipeline benchmark` + `python3 -m pytest` (offline; no network, GPU, or paid APIs).
+After `make setup`, either `source .venv/bin/activate` first or use the venv tools
+directly (`.venv/bin/ruff check src tests pipeline benchmark`,
+`.venv/bin/python -m pytest tests/test_<name>.py`).
 
 ## Rules for agents working here
 
@@ -23,3 +47,9 @@ Parameter sources are cited as `paper p.NN` / `paper Methods §name` — every c
 - Worktrees for multi-file work: `.worktrees/<task>-<YYYYMMDD>` (org convention).
 - Offline by default: unit tests must not hit the network. Live connectors get a
   `--live` flag and a recorded-fixture test mode.
+
+## Done
+
+Branch per change -> PR. New code gets a test with a real oracle. `make check`
+green locally; CI green before merge. Receipts (commands + real output) go in
+the PR body.
