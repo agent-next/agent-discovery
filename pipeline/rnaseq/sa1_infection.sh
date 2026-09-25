@@ -80,7 +80,9 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
 fi
 
 # paper: combined reference of SA1 genome MW218148.1 + S. lentus NZ_CP059679.1
-run bash -c "cat \"$REF_SA1\" \"$REF_HOST\" > \"$OUT/sa1_plus_host.fna\""
+# FP-filter follow-up (2026-09-24): positional bash -c -- no interpolation
+# into the command string at all.
+run bash -c 'cat "$1" "$2" > "$3"' bash "$REF_SA1" "$REF_HOST" "$OUT/sa1_plus_host.fna"
 run bowtie2-build "$OUT/sa1_plus_host.fna" "$OUT/bt2_sa1_host"
 
 # NOT-IN-PAPER: accession-file plumbing. In --dry-run without the file we still
