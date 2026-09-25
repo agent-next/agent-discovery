@@ -582,3 +582,67 @@ def test_chains_allow_skip_as_first_gap():
     assert any(len(c) == 3 for c in _chains([0, 400, 600]))
     full = _chains([0, 400, 600, 800, 1000])
     assert any(len(c) == 5 for c in full), full  # one skip, not two
+
+
+# ---------------------------------------------------------------------------
+# S4 finding 1: follow-ups from a FAILED worker pass must not enter triage
+# ---------------------------------------------------------------------------
+
+class FailingWorkerWithFollowups(ScriptedBackend):
+    """Every worker pass proposes a follow-up and produces no summary."""
+
+    def run(self, spec):
+        out = ScriptedBackend.run(self, spec)
+        if spec.role == "worker":
+            out.proposed_followups = ["new task please"]
+            (spec.workdir / "summary.md").unlink(missing_ok=True)
+        return out
+
+
+def test_failed_passes_do_not_spawn_followup_tasks(tmp_path: Path):
+    from artharness.accounting import SessionLedger
+    from artharness.knowledge import KnowledgeBase
+    from artharness.orchestrator import STAGES, Orchestrator
+    from artharness.records import RecordStore
+
+    root = tmp_path / "campaign"
+    root.mkdir()
+    store = RecordStore(root, use_git=False)
+    orch = Orchestrator(CampaignConfig(max_gate_failures=2, max_tasks_total=30),
+                        store, KnowledgeBase(root / "kb"),
+                        SessionLedger(root / "ledger.jsonl"),
+                        FailingWorkerWithFollowups(),
+                        {s: (lambda s: True) for s in STAGES})
+    orch.run_stage_chain({"1_input_assembly": ["seed task"]})
+    orch.run()
+    # pre-fix: every retried pass re-proposed, so the budget filled with
+    # follow-up tasks (30 tasks / 29 follow-ups on grok's probe)
+    assert len(store.list_tasks()) == 1
+    assert orch.report.follow_ups == 0
+    assert store.get("t0001").status is TaskStatus.STALLED
+
+
+# ---------------------------------------------------------------------------
+# S4 finding 2: chains must not jump over DETECTED copies
+# ---------------------------------------------------------------------------
+
+def _index_jumps_ok(chain: list[int], positions: list[int]) -> bool:
+    """At most one index skip per chain, and each skip is a single position."""
+    idx = [positions.index(p) for p in chain]
+    skips = sum(b - a - 1 for a, b in zip(idx, idx[1:], strict=False))
+    return skips <= 1 and all(0 <= b - a <= 2 for a, b in zip(idx, idx[1:],
+                                                             strict=False))
+
+
+def test_chains_never_step_over_detected_copies():
+    for positions in ([0, 180, 200, 400, 600, 800],
+                      [0, 200, 250, 400, 600, 800]):
+        for chain in _chains(positions):
+            assert _index_jumps_ok(chain, positions), (chain, positions)
+    # grok's probes: the longest legal chains exclude the un-fittable prefix
+    assert max(len(c) for c in _chains([0, 180, 200, 400, 600, 800])) == 4
+    assert max(len(c) for c in _chains([0, 200, 250, 400, 600, 800])) == 3
+    # the S3 no.6 behaviors are preserved
+    assert any(len(c) == 3 for c in _chains([0, 400, 600]))
+    assert any(len(c) == 5 for c in _chains([0, 400, 600, 800, 1000]))
+    assert not any(len(c) == 5 for c in _chains([0, 200, 400, 800, 1200]))

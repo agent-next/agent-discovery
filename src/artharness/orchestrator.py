@@ -179,9 +179,6 @@ class Orchestrator:
         while True:
             out = self.roles.worker(rec)
             self.ledger.record(out.result)
-            # worker-proposed follow-ups enter triage
-            for fu in out.proposed_followups:
-                self.propose_followup(fu, rec, proposed_by="worker")
 
             summary = self.store.records / rec.task_id / "summary.md"
             if not summary.exists():
@@ -194,7 +191,15 @@ class Orchestrator:
                 if rec.gate_failures >= self.cfg.max_gate_failures:
                     self._stall(rec, "completion checks")
                     return
+                # S4 finding 1: follow-ups from a FAILED pass must not enter
+                # triage — with retry loops a failing worker would re-propose
+                # every pass and explode the task budget. Triage happens only
+                # for a pass that passed the check (below).
                 continue  # re-dispatch the worker
+
+            # worker-proposed follow-ups enter triage (valid passes only)
+            for fu in out.proposed_followups:
+                self.propose_followup(fu, rec, proposed_by="worker")
 
             rec.status = TaskStatus.EXECUTED
             self.store.update(rec, f"task({rec.task_id}): worker submitted summary")

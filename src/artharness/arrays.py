@@ -352,21 +352,26 @@ def _chains(positions: list[int]) -> list[list[int]]:
     The FIRST gap has no median to anchor on, and its reading can be ambiguous:
     a 400-nt opening gap may be regular period-400 spacing or a period-200 chain
     with its first copy skipped (S3 finding 6: 0,400,600 must chain). Both
-    readings are explored; the 30% check on the following gaps arbitrates."""
+    readings are explored; the 30% check on the following gaps arbitrates.
+
+    Chains consume CONSECUTIVE entries of ``positions`` (S4 finding 2: seeding
+    a first gap from positions[j], j > i+1, jumped over DETECTED copies without
+    counting them — a skipped copy is a missed detection, not a detected-but-
+    ignored one)."""
     lo, hi = DELIMIT_SPACING
     out: dict[tuple[int, ...], list[int]] = {}
-    for i in range(len(positions)):
-        for j in range(i + 1, len(positions)):
-            gap = positions[j] - positions[i]
-            candidates: list[tuple[float, bool]] = []
-            if lo <= gap <= hi:
-                candidates.append((float(gap), False))
-            if lo <= gap / 2 <= hi:
-                candidates.append((gap / 2, True))  # provisional first-gap skip
-            for eff, skipped in candidates:
-                chain = _extend_chain(positions, i, j, eff, skipped)
-                if chain is not None:
-                    out[tuple(chain)] = chain
+    for i in range(len(positions) - 1):
+        j = i + 1  # consecutive detections only
+        gap = positions[j] - positions[i]
+        candidates: list[tuple[float, bool]] = []
+        if lo <= gap <= hi:
+            candidates.append((float(gap), False))
+        if lo <= gap / 2 <= hi:
+            candidates.append((gap / 2, True))  # provisional first-gap skip
+        for eff, skipped in candidates:
+            chain = _extend_chain(positions, i, j, eff, skipped)
+            if chain is not None:
+                out[tuple(chain)] = chain
     return list(out.values())
 
 
