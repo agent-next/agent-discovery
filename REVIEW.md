@@ -32,6 +32,23 @@ ART paper). Every finder/verifier prompt must consult this file.
 9. **Provenance labels.** Values not stated by the paper carry
    `NOT-IN-PAPER:`/`PLACEHOLDER-CLASS-SPECIFIC:`/`GAP:` — findings should flag
    any magic number without one.
+10. **StrEnum ordering traps.** `TaskStatus` members are strings: `<` compares
+   them ALPHABETICALLY, not by lifecycle. Never order-compare enum members for
+   state gates (`file_report` once accepted ACCEPTED and refused EXECUTED this
+   way). Compare against explicit states, or keep an explicit order list.
+11. **Aggregate fields over overlapping structures.** When a counter sums two
+   collections (e.g. `store` + `queue`), check they are disjoint — the task
+   queue is a subset of the store and `tasks_total` silently doubled.
+
+## Fixture-trap class (S3 gate, 2026-09-25)
+
+A test fixture must not fight the code under test's convenience paths:
+`EmptyRevision` deleted `summary.md` BEFORE calling the scripted writer, which
+only writes when the file is missing — it resurrected the file and the
+"completion check" under test never fired (the test passed via an unrelated
+stall mode). Rule: a power test asserts the COUNTERS/mode that identify the
+path under test (e.g. `gate_failures` vs `revisions`), not just the terminal
+status both paths share.
 
 ## Skip lists
 
