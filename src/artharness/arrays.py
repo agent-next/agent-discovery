@@ -123,11 +123,39 @@ def _copies_of(window: str, seed: str, max_mm: int) -> list[int]:
     return pos
 
 
+def _tolerant_window(run: list[int]) -> list[int] | None:
+    """Longest contiguous sub-window of ``run`` whose gaps are all within 30% of
+    the window's median gap. A single irregular gap must not discard an otherwise
+    regular run: 0,200,400,700,900,1100 holds two compliant 3-copy windows even
+    though the whole run fails the median check (S1 finding B2)."""
+    gaps = [b - a for a, b in zip(run, run[1:], strict=False)]
+    med = _median(gaps)
+    if all(abs(g - med) <= SPACING_TOLERANCE * med for g in gaps):
+        return run
+    for size in range(len(run) - 1, MIN_RUN - 1, -1):
+        for s in range(len(run) - size + 1):
+            sub = run[s:s + size]
+            g = [b - a for a, b in zip(sub, sub[1:], strict=False)]
+            m = _median(g)
+            if all(abs(x - m) <= SPACING_TOLERANCE * m for x in g):
+                return sub
+    return None
+
+
+def _median(xs: list[float]) -> float:
+    """True median: with two gaps the upper-middle index rejected 3-copy runs
+    whose gap ratio was in [0.54, 0.71] (S1 finding B4: R >= 3 is the paper's
+    own call threshold, so legal arrays must not fail the tolerance rule)."""
+    s = sorted(xs)
+    n = len(s)
+    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
+
+
 def _regular_runs(positions: list[int]) -> list[list[int]]:
     """Split sorted copy positions into maximal runs with spacing in
-    [MIN_SPACING, MAX_SPACING]; a run is kept when all gaps are within 30% of the
-    median gap (INTERPRETED: "regularly spaced" — tolerance taken from the paper's
-    delimitation step, which fixes 30%)."""
+    [MIN_SPACING, MAX_SPACING]; each run is reduced to its longest window whose
+    gaps are within 30% of its median gap (INTERPRETED: "regularly spaced" —
+    tolerance taken from the paper's delimitation step, which fixes 30%)."""
     if len(positions) < MIN_RUN:
         return []
     runs: list[list[int]] = []
@@ -144,10 +172,9 @@ def _regular_runs(positions: list[int]) -> list[list[int]]:
         runs.append(cur)
     kept = []
     for run in runs:
-        gaps = [b - a for a, b in zip(run, run[1:], strict=False)]
-        med = sorted(gaps)[len(gaps) // 2]
-        if all(abs(g - med) <= SPACING_TOLERANCE * med for g in gaps):
-            kept.append(run)
+        win = _tolerant_window(run)
+        if win is not None and len(win) >= MIN_RUN:
+            kept.append(win)
     return kept
 
 
@@ -292,30 +319,38 @@ def _consensus_block(copies_seqs: list[str]) -> tuple[int, int, str]:
 
 def _chains(positions: list[int]) -> list[list[int]]:
     """Chains of copies at near-constant spacing (DELIMIT_SPACING, 30% tolerance
-    against the running median gap, a single skipped copy allowed = one gap may be
-    ~2x the median)."""
+    against the running median gap, a single skipped copy allowed).
+
+    The skipped-copy rule is anchored on the running median: with ART spacings of
+    60-600 nt a missing copy produces a gap of ~2x the median, which is still
+    inside [60, 600] — so a skip can never be detected from range membership alone
+    (S1 finding B1: the old outside-range test was unreachable and the 30% check
+    then broke every such chain)."""
     lo, hi = DELIMIT_SPACING
     out: list[list[int]] = []
     for i in range(len(positions)):
         cur = [positions[i]]
-        gaps: list[int] = []
+        gaps: list[float] = []
         skipped = False
         for nxt in positions[i + 1:]:
             gap = nxt - cur[-1]
-            is_skip = False
-            if not (lo <= gap <= hi):
-                if not skipped and len(cur) >= 2 and 2 * lo <= gap <= 2 * hi:
-                    is_skip = True  # single skipped copy tolerated
-                else:
+            if not gaps:
+                # first gap has no median to anchor on: plain range membership
+                if not lo <= gap <= hi:
                     break
-            eff = gap // 2 if is_skip else gap
-            if gaps:
-                med = sorted(gaps)[len(gaps) // 2]
-                if abs(eff - med) > SPACING_TOLERANCE * med:
+                eff: float = gap
+            else:
+                med = _median(gaps)
+                if abs(gap - med) <= SPACING_TOLERANCE * med:
+                    eff = gap  # regular spacing
+                elif (not skipped and len(gaps) >= 1
+                      and abs(gap / 2 - med) <= SPACING_TOLERANCE * med):
+                    eff = gap / 2  # a single skipped copy: half-gap ~ median
+                    skipped = True
+                else:
                     break
             gaps.append(eff)
             cur.append(nxt)
-            skipped = skipped or is_skip
         if len(cur) >= MIN_RUN:
             out.append(cur)
     return out
@@ -376,7 +411,6 @@ def delimit_array(locus: str, upstream: str, rng: random.Random) -> DelimitedArr
                     top = max(top, s_val)
         return top
 
-    score, chain, shuffles_used = score, chain, shuffles_used
     base_max3 = best_shuffle_score(window3, N_SHUFFLES_DELIMIT)
     base_max6 = best_shuffle_score(window6, N_SHUFFLES_DELIMIT)
     beat = score > base_max3 and score > base_max6
@@ -414,8 +448,10 @@ def build_pwm(alignments: list[str], background: dict[str, float],
         for s in alignments:
             col[s[i]] += 1.0
         total = sum(col.values())
-        pwm.append({b: math_log2((col[b] / total) / background.get(b, 0.25))
-                    for b in BASES})
+        pwm.append({b: math_log2((col[b] / total)
+                                 / max(background.get(b, 0.25), 1e-6))
+                    for b in BASES})  # a 0-frequency background base must not
+        # divide by zero (windows with no T are legal input)
     return pwm
 
 
@@ -462,7 +498,9 @@ def pwm_extend(array: DelimitedArray, upstream: str, rng: random.Random,
             i += w  # delimited copy: skip its block
             continue
         if pwm_score(window[i:i + w], pwm) > threshold:
-            extra.append(i - off)  # record copy starts, not block starts
+            if i >= off:  # a block start before block_offset would place the
+                # copy start before the window itself (negative coordinate)
+                extra.append(i - off)  # record copy starts, not block starts
             i += w
         else:
             i += 1
