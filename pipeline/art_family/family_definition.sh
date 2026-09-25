@@ -93,7 +93,12 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
 fi
 
 # --- seed BLASTP ----------------------------------------------------------
-# paper: BLASTP seeded from the MarsHill RT (GenBank QQM14740.1)
+# paper: BLASTP seeded from the MarsHill RT (GenBank QQM14740.1) collects
+# homologs FROM GENBANK -- a separate source from the metagenomic DB searched
+# by the profile HMM below.
+# GAP (S1 review): this output is currently UNUSED downstream -- the paper's
+# GenBank-homolog branch is not wired into the 4,379-protein pool yet; the
+# step is kept because the paper names it, but do not count it as reproduced.
 # GAP: BLASTP parameters are not stated; -evalue 1e-5 mirrors the paper's
 # hmmsearch threshold below, outfmt 6 plumbing is ours.
 run "blastp -query \"$SEED_FAA\" -db \"$SEARCHDB_FAA\" -evalue 1e-5 -outfmt 6 -out \"$OUT/seed_blastp.tsv\""
@@ -143,6 +148,12 @@ run "cat \"$OUT/component117.faa\" \"$OUT/expanded_400.faa\" | seqkit rmdup -s >
 
 # --- 90% clustering --------------------------------------------------------------------
 # paper: mmseqs easy-cluster --min-seq-id 0.9 -c 0.8 -> 230 clusters
+# GAP (S1 review): the paper takes the member on the LONGEST CONTIG as each
+# cluster's representative ("the member on the longest contig was taken as the
+# representative of each cluster", Methods p.31); MMseqs' own representative
+# choice follows similarity/length heuristics. The representative sequence
+# differs, so the 230-leaf tree and the ART_01..95 numbering are not faithful
+# until a contig-length-aware selection step replaces _clu_rep_seq below.
 run "mmseqs easy-cluster \"$OUT/art_823.faa\" \"$OUT/art_823_clu\" \"$OUT/tmp_mmseqs\" --min-seq-id 0.9 -c 0.8"
 
 # --- representative alignment + tree -----------------------------------------------------

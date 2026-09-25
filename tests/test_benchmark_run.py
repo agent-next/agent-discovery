@@ -24,7 +24,7 @@ def test_run_benchmark_end_to_end_offline(tmp_path):
         }
 
     records = run_benchmark(models=["m"], levels=["L3"], attempts=1,
-                            outdir=tmp_path, backend=stub)
+                            outdir=tmp_path, backend=stub, allow_synthetic=True)
     assert len(records) == 1
     run_dir = tmp_path / "runs" / "m" / "L3" / "attempt_001"
     assert (run_dir / "report.md").is_file()
@@ -46,7 +46,7 @@ def test_hedged_only_submission_scores_zero(tmp_path):
             "confidence": 0.4, "asserted": False}]}}
 
     records = run_benchmark(models=["m"], levels=["L3"], attempts=1,
-                            outdir=tmp_path, backend=stub)
+                            outdir=tmp_path, backend=stub, allow_synthetic=True)
     assert records[0]["score"] == 0
     assert records[0]["recognized_repeat_array"] is False
 

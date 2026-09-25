@@ -162,7 +162,8 @@ def format_matrix(models: list[str], levels: list[str], attempts: int) -> str:
 def run_benchmark(models: list[str], levels: list[str], attempts: int,
                   outdir: Path, seed: int = 0, backend: Backend | None = None,
                   judge: Judge | None = None,
-                  inputs_dir: Path | None = None) -> list[dict[str, Any]]:
+                  inputs_dir: Path | None = None,
+                  allow_synthetic: bool = False) -> list[dict[str, Any]]:
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     rubric = default_rubric()
@@ -172,7 +173,12 @@ def run_benchmark(models: list[str], levels: list[str], attempts: int,
     for level in levels:
         ldir = inputs_root / level
         if not (ldir / "loci").exists():
-            # Synthetic fallback so offline/demo runs work; real runs pass --inputs.
+            if not allow_synthetic:
+                # S1 finding C: silent fabrication graded synthetic fixtures as
+                # if they were the paper's 96 loci. Opt in explicitly.
+                raise FileNotFoundError(
+                    f"no inputs at {ldir}/loci — pass --inputs with the real "
+                    "benchmark inputs, or --synthetic to fabricate fixtures")
             write_synthetic_inputs(ldir)
         envs[level] = build_environment(level, ldir)
     records = []
@@ -224,8 +230,10 @@ def main(argv: list[str] | None = None) -> int:
                         "{report, submission} (default: live ClaudeCodeBackend, "
                         "requires ARTHARNESS_ALLOW_LIVE=1)")
     p.add_argument("--inputs", default=None,
-                   help="dir with real benchmark inputs (default: <outdir>/inputs; "
-                        "synthetic fixtures are written there if absent)")
+                   help="dir with real benchmark inputs (default: <outdir>/inputs)")
+    p.add_argument("--synthetic", action="store_true",
+                   help="explicitly fabricate synthetic fixtures when --inputs is "
+                        "absent (S1: silent fabrication graded fake data)")
     p.add_argument("--dry-run", action="store_true",
                    help="print the attempt matrix without running")
     args = p.parse_args(argv)
@@ -245,6 +253,7 @@ def main(argv: list[str] | None = None) -> int:
         models=models, levels=levels, attempts=args.attempts,
         outdir=Path(args.outdir), seed=args.seed, backend=backend,
         inputs_dir=Path(args.inputs) if args.inputs else None,
+        allow_synthetic=args.synthetic,
     )
     print(f"wrote {len(records)} attempt records to "
           f"{Path(args.outdir) / 'results.jsonl'}")

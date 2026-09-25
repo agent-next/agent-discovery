@@ -72,7 +72,14 @@ def read_fasta(path):
         yield name, "".join(chunks)
 
 
-masked = {name: seq for name, seq in read_fasta(sys.argv[2])}
+masked = {h.split()[0]: seq for h, seq in read_fasta(sys.argv[2])}
+# keys are FIRST TOKENS: tantan preserves the original header, and the lookup
+# below keys on the first token — keying this dict on the FULL header made the
+# get() always miss, so the low-complexity filter never fired (S1 finding B3)
+
+seen_seqs = set()  # paper: "Proteins were deduplicated" (NOT-IN-PAPER: exact-
+# sequence key, first occurrence kept; the paper does not state the method)
+
 with open(sys.argv[3], "w") as out:
     for header, seq in read_fasta(sys.argv[1]):
         if "partial=00" not in header:  # paper: exclude incomplete CDS
@@ -88,6 +95,9 @@ with open(sys.argv[3], "w") as out:
         low = sum(1 for c in mask if c.islower() or c == "X")
         if mask and low / len(mask) >= 0.5:  # paper: >=50% low-complexity (tantan)
             continue
+        if seq in seen_seqs:  # paper: deduplicated
+            continue
+        seen_seqs.add(seq)
         out.write(f">{header}\n{seq}\n")
 PY
 }
