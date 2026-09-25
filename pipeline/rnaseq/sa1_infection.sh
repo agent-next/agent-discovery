@@ -35,13 +35,18 @@ REF_HOST="${REF_HOST:-data/rnaseq/NZ_CP059679.1.fna}"
 FEATURES="${FEATURES:-data/rnaseq/features_259.gtf}"
 OUT="${OUTDIR:-results/rnaseq}"
 
+# SECURITY (S3b 2026-09-24): argument form -- never eval. Data-derived values
+# (accessions from a file) cross a trust boundary here.
 run() {
     if [[ "$DRY_RUN" -eq 1 ]]; then
-        printf '%s\n' "$1"
+        printf '%s\n' "$*"
     else
-        eval "$1"
+        "$@"
     fi
 }
+
+# SRA-style accession gate: the only file-derived input allowed near a command.
+acc_ok() { [[ "$1" =~ ^[A-Z]{3}[A-Za-z0-9_-]{0,20}$ ]]; }  # shell-metachar-free
 
 # TPM from featureCounts output: TPM = (count/len) / sum(count/len) * 1e6.
 # paper: TPM over 259 features. NOT-IN-PAPER: counter/normalizer plumbing.
@@ -75,8 +80,8 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
 fi
 
 # paper: combined reference of SA1 genome MW218148.1 + S. lentus NZ_CP059679.1
-run "cat \"$REF_SA1\" \"$REF_HOST\" > \"$OUT/sa1_plus_host.fna\""
-run "bowtie2-build \"$OUT/sa1_plus_host.fna\" \"$OUT/bt2_sa1_host\""
+run bash -c "cat \"$REF_SA1\" \"$REF_HOST\" > \"$OUT/sa1_plus_host.fna\""
+run bowtie2-build "$OUT/sa1_plus_host.fna" "$OUT/bt2_sa1_host"
 
 # NOT-IN-PAPER: accession-file plumbing. In --dry-run without the file we still
 # print the per-library commands against 12 placeholder run ids (paper: 12
@@ -94,21 +99,30 @@ acc_stream() {
 
 while IFS= read -r acc; do
     [[ -z "$acc" || "$acc" == \#* ]] && continue
+    if ! acc_ok "$acc"; then
+        printf 'skipping non-accession line: %s\n' "$acc" >&2
+        continue
+    fi
     # paper: BioProject PRJNA836150, 12 paired-end libraries
     # NOT-IN-PAPER: fetch/prefetch plumbing
-    run "prefetch -O \"$OUT/fastq\" \"$acc\""
-    run "fasterq-dump --split-files -O \"$OUT/fastq\" \"$acc\""
+    run prefetch -O "$OUT/fastq" "$acc"
+    run fasterq-dump --split-files -O "$OUT/fastq" "$acc"
     # paper: fastp 1.3.6 -- adapter trimming OFF, poly-G trimming ON, min length 12
-    run "fastp --disable_adapter_trimming --trim_poly_g --length_required 12 -i \"$OUT/fastq/${acc}_1.fastq\" -I \"$OUT/fastq/${acc}_2.fastq\" -o \"$OUT/trim/${acc}_1.fq.gz\" -O \"$OUT/trim/${acc}_2.fq.gz\""
+    run fastp --disable_adapter_trimming --trim_poly_g --length_required 12 \
+        -i "$OUT/fastq/${acc}_1.fastq" -I "$OUT/fastq/${acc}_2.fastq" \
+        -o "$OUT/trim/${acc}_1.fq.gz" -O "$OUT/trim/${acc}_2.fq.gz"
     # paper: Bowtie2 --very-sensitive -X 1000 --no-unal vs SA1 + host
-    run "bowtie2 --very-sensitive -X 1000 --no-unal -x \"$OUT/bt2_sa1_host\" -1 \"$OUT/trim/${acc}_1.fq.gz\" -2 \"$OUT/trim/${acc}_2.fq.gz\" -S \"$OUT/bam/${acc}.sam\""
+    run bowtie2 --very-sensitive -X 1000 --no-unal -x "$OUT/bt2_sa1_host" \
+        -1 "$OUT/trim/${acc}_1.fq.gz" -2 "$OUT/trim/${acc}_2.fq.gz" \
+        -S "$OUT/bam/${acc}.sam"
     # paper: keep MAPQ >= 10
-    run "samtools view -b -q 10 \"$OUT/bam/${acc}.sam\" | samtools sort -o \"$OUT/bam/${acc}.sorted.bam\""
+    run samtools view -b -q 10 -o "$OUT/bam/${acc}.bam" "$OUT/bam/${acc}.sam"
+    run samtools sort -o "$OUT/bam/${acc}.sorted.bam" "$OUT/bam/${acc}.bam"
 done < <(acc_stream)
 
 # paper: TPM over 259 features
 # NOT-IN-PAPER: featureCounts for quantification (paper states TPM only)
-run "featureCounts -a \"$FEATURES\" -o \"$OUT/counts.tsv\" \"$OUT\"/bam/*.sorted.bam"
+run featureCounts -a "$FEATURES" -o "$OUT/counts.tsv" "$OUT"/bam/*.sorted.bam
 if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "python3 - $OUT/counts.tsv $OUT/tpm.tsv  # TPM = (count/len)/sum(count/len)*1e6"
 else

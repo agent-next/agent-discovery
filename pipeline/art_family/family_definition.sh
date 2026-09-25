@@ -49,6 +49,10 @@ GENOMES_FNA="${GENOMES_FNA:-data/art_family/genomes.fna}"
 GENOMAD_DB="${GENOMAD_DB:-data/genomad_db_1.9}"
 OUT="${OUTDIR:-results/art_family}"
 
+# SECURITY-NOTE (S3b 2026-09-24): eval sink. Inputs are operator-controlled today
+# (env vars / positional args, not data files). Convert to "$@" argument form
+# before ever interpolating data-derived values here. See sa1_infection.sh
+# for the converted pattern.
 run() {
     if [[ "$DRY_RUN" -eq 1 ]]; then
         printf '%s\n' "$1"

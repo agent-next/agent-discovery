@@ -32,6 +32,10 @@ done
 GENOME_FNA="${POS[0]:-${GENOME_FNA:-data/db/genomes.fna}}"
 OUT="${POS[1]:-${OUTDIR:-results/db}}"
 
+# SECURITY-NOTE (S3b 2026-09-24): eval sink. Inputs are operator-controlled today
+# (env vars / positional args, not data files). Convert to "$@" argument form
+# before ever interpolating data-derived values here. See sa1_infection.sh
+# for the converted pattern.
 run() {
     if [[ "$DRY_RUN" -eq 1 ]]; then
         printf '%s\n' "$1"
