@@ -164,20 +164,20 @@ def test_supervisor_task_briefs_are_parsed_as_blocks():
 # ---------------------------------------------------------------------------
 
 class EmptyRevision(ScriptedBackend):
-    """First worker pass writes summary.md; the revision pass writes nothing."""
+    """Pass 1 writes summary.md; later worker passes produce nothing (the
+    scripted writer is bypassed by deleting AFTER it ran — S3 finding 5:
+    deleting before let it resurrect the file and the check was vacuous)."""
 
     def __init__(self):
         super().__init__()
         self.worker_calls = 0
 
     def run(self, spec):
+        out = ScriptedBackend.run(self, spec)
         if spec.role == "worker":
             self.worker_calls += 1
             if self.worker_calls >= 2:
-                # revision session produces no outputs: withdraw the pass-1
-                # summary the way the orchestrator expects a fresh session to
                 (spec.workdir / "summary.md").unlink(missing_ok=True)
-        out = ScriptedBackend.run(self, spec)
         if spec.role == "supervisor":
             out.verdict = "revise"  # never accepts; stall must come from checks
         return out
@@ -205,9 +205,17 @@ def test_revision_pass_failing_completion_check_stalls(tmp_path: Path):
     orch.queue.clear()
     orch.queue.append(rec.task_id)
     orch.run()
-    # the revision pass produced no summary -> gate failure -> STALL, and the
-    # supervisor never got to re-review the stale pass-1 summary
-    assert store.get(rec.task_id).status == TaskStatus.STALLED
+    final = store.get(rec.task_id)
+    # the revision pass produced no summary -> completion-check failure -> STALL.
+    # Assert the COUNTERS, not just the status: a revisions-limit stall also
+    # ends STALLED, which is exactly how the vacuous version passed (S3 no. 5).
+    assert final.status == TaskStatus.STALLED
+    # counters pin the MODE: the supervisor revised once, then both empty
+    # revision passes failed the completion check (the pre-S3-fix code reached
+    # revisions=10 / gate_failures=9 here — the check path was unreachable)
+    assert final.gate_failures == 2, final.gate_failures
+    assert final.revisions == 1, final.revisions
+    assert orch.report.stalled == 1
 
 
 # ---------------------------------------------------------------------------
@@ -468,3 +476,109 @@ def test_campaign_record_carries_brief_provenance(tmp_path: Path):
     text = (root / "campaign.md").read_text()
     assert "reconstruction-v0 (6 anchors), not verbatim" in text
     assert "not the" in text and "verbatim Anthropic brief" in text
+
+
+# ---------------------------------------------------------------------------
+# S3 finding 3: a failed revision check must re-dispatch the WORKER, not hand
+# an empty task to an accepting supervisor (curator then crashed on FileNotFound)
+# ---------------------------------------------------------------------------
+
+class ReviseOnceThenAccept(ScriptedBackend):
+    def __init__(self):
+        super().__init__()
+        self.worker_calls = 0
+        self.sup_calls = 0
+
+    def run(self, spec):
+        out = ScriptedBackend.run(self, spec)
+        if spec.role == "worker":
+            self.worker_calls += 1
+            if self.worker_calls == 2:  # one empty revision
+                (spec.workdir / "summary.md").unlink(missing_ok=True)
+        if spec.role == "supervisor":
+            self.sup_calls += 1
+            if self.sup_calls == 1:
+                out.verdict = "revise"  # forces the empty revision pass
+        return out
+
+
+def test_empty_revision_recovers_via_redispatch_not_curator_crash(tmp_path: Path):
+    from artharness.accounting import SessionLedger
+    from artharness.knowledge import KnowledgeBase
+    from artharness.orchestrator import STAGES, Orchestrator
+    from artharness.records import RecordStore
+
+    root = tmp_path / "campaign"
+    root.mkdir()
+    store = RecordStore(root, use_git=False)
+    orch = Orchestrator(CampaignConfig(), store, KnowledgeBase(root / "kb"),
+                        SessionLedger(root / "ledger.jsonl"),
+                        ReviseOnceThenAccept(),
+                        {s: (lambda s: True) for s in STAGES})
+    orch.run_stage_chain({"1_input_assembly": ["task"]})
+    orch.run()
+    rec = store.get("t0001")
+    # pre-fix: supervisor reviewed the summary-less task, accepted, and the
+    # curator raised FileNotFoundError mid-campaign
+    assert rec.status is TaskStatus.CURATED
+    assert rec.gate_failures == 1
+    assert orch.report.completed == 1
+
+
+# ---------------------------------------------------------------------------
+# S3 finding 1: tasks_total must not double-count (queue is a subset of store)
+# ---------------------------------------------------------------------------
+
+def test_tasks_total_counts_each_task_once(tmp_path: Path):
+    from artharness.accounting import SessionLedger
+    from artharness.knowledge import KnowledgeBase
+    from artharness.orchestrator import STAGES, Orchestrator
+    from artharness.records import RecordStore
+
+    root = tmp_path / "campaign"
+    root.mkdir()
+    store = RecordStore(root, use_git=False)
+    orch = Orchestrator(CampaignConfig(), store, KnowledgeBase(root / "kb"),
+                        SessionLedger(root / "ledger.jsonl"), ScriptedBackend(),
+                        {s: (lambda s: True) for s in STAGES})
+    orch.run_stage_chain({STAGES[0]: ["a", "b"], STAGES[1]: ["c"]})
+    report = orch.run()
+    assert report.tasks_total == 3
+    assert report.completed == 3
+
+
+# ---------------------------------------------------------------------------
+# S3 finding 2: the report gate is an explicit state check, not a StrEnum `<`
+# ---------------------------------------------------------------------------
+
+def test_file_report_refuses_pre_curation_states(tmp_path: Path):
+    import pytest
+
+    from artharness.accounting import SessionLedger
+    from artharness.knowledge import KnowledgeBase
+    from artharness.orchestrator import STAGES, Orchestrator
+    from artharness.records import RecordStore
+
+    root = tmp_path / "campaign"
+    root.mkdir()
+    store = RecordStore(root, use_git=False)
+    orch = Orchestrator(CampaignConfig(), store, KnowledgeBase(root / "kb"),
+                        SessionLedger(root / "ledger.jsonl"), ScriptedBackend(),
+                        {s: (lambda s: True) for s in STAGES})
+    orch.run_stage_chain({"1_input_assembly": ["a"], STAGES[1]: ["b"]})
+    # OPEN (never dispatched): the old alphabetical `<` happened to refuse this;
+    # EXECUTED (worker done, no curator) MUST also be refused and was not
+    # reachable through the old comparison
+    with pytest.raises(ValueError, match="curator"):
+        orch.file_report("t0001", "# early report")
+    assert not (store.records / "t0001" / "report.md").exists()
+
+
+# ---------------------------------------------------------------------------
+# S3 finding 6: a skipped copy may come FIRST in the chain
+# ---------------------------------------------------------------------------
+
+def test_chains_allow_skip_as_first_gap():
+    assert any(len(c) == 3 for c in _chains([0, 400, 600]))
+    full = _chains([0, 400, 600, 800, 1000])
+    assert any(len(c) == 5 for c in full), full  # one skip, not two

@@ -317,6 +317,28 @@ def _consensus_block(copies_seqs: list[str]) -> tuple[int, int, str]:
     return s, e, "".join(cons[i][0] for i in range(s, e))
 
 
+def _extend_chain(positions: list[int], i: int, j: int, first_eff: float,
+                  first_skipped: bool) -> list[int] | None:
+    """Extend the seed pair (i, j) — whose first gap is already interpreted as
+    ``first_eff`` (regular or halved) — into the longest compliant chain."""
+    cur = [positions[i], positions[j]]
+    gaps: list[float] = [first_eff]
+    skipped = first_skipped
+    for nxt in positions[j + 1:]:
+        gap = nxt - cur[-1]
+        med = _median(gaps)
+        if abs(gap - med) <= SPACING_TOLERANCE * med:
+            eff = gap  # regular spacing
+        elif not skipped and abs(gap / 2 - med) <= SPACING_TOLERANCE * med:
+            eff = gap / 2  # a single skipped copy: half-gap ~ median
+            skipped = True
+        else:
+            break
+        gaps.append(eff)
+        cur.append(nxt)
+    return cur if len(cur) >= MIN_RUN else None
+
+
 def _chains(positions: list[int]) -> list[list[int]]:
     """Chains of copies at near-constant spacing (DELIMIT_SPACING, 30% tolerance
     against the running median gap, a single skipped copy allowed).
@@ -325,35 +347,27 @@ def _chains(positions: list[int]) -> list[list[int]]:
     60-600 nt a missing copy produces a gap of ~2x the median, which is still
     inside [60, 600] — so a skip can never be detected from range membership alone
     (S1 finding B1: the old outside-range test was unreachable and the 30% check
-    then broke every such chain)."""
+    then broke every such chain).
+
+    The FIRST gap has no median to anchor on, and its reading can be ambiguous:
+    a 400-nt opening gap may be regular period-400 spacing or a period-200 chain
+    with its first copy skipped (S3 finding 6: 0,400,600 must chain). Both
+    readings are explored; the 30% check on the following gaps arbitrates."""
     lo, hi = DELIMIT_SPACING
-    out: list[list[int]] = []
+    out: dict[tuple[int, ...], list[int]] = {}
     for i in range(len(positions)):
-        cur = [positions[i]]
-        gaps: list[float] = []
-        skipped = False
-        for nxt in positions[i + 1:]:
-            gap = nxt - cur[-1]
-            if not gaps:
-                # first gap has no median to anchor on: plain range membership
-                if not lo <= gap <= hi:
-                    break
-                eff: float = gap
-            else:
-                med = _median(gaps)
-                if abs(gap - med) <= SPACING_TOLERANCE * med:
-                    eff = gap  # regular spacing
-                elif (not skipped and len(gaps) >= 1
-                      and abs(gap / 2 - med) <= SPACING_TOLERANCE * med):
-                    eff = gap / 2  # a single skipped copy: half-gap ~ median
-                    skipped = True
-                else:
-                    break
-            gaps.append(eff)
-            cur.append(nxt)
-        if len(cur) >= MIN_RUN:
-            out.append(cur)
-    return out
+        for j in range(i + 1, len(positions)):
+            gap = positions[j] - positions[i]
+            candidates: list[tuple[float, bool]] = []
+            if lo <= gap <= hi:
+                candidates.append((float(gap), False))
+            if lo <= gap / 2 <= hi:
+                candidates.append((gap / 2, True))  # provisional first-gap skip
+            for eff, skipped in candidates:
+                chain = _extend_chain(positions, i, j, eff, skipped)
+                if chain is not None:
+                    out[tuple(chain)] = chain
+    return list(out.values())
 
 
 def _chain_score(window: str, chain: list[int], seed_len: int) -> tuple[float, str]:
