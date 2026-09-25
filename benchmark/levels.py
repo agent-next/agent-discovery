@@ -15,6 +15,7 @@ gene calls, Pfam matches, 1,131 predicted protein structures.
 from __future__ import annotations
 
 import random
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -43,14 +44,55 @@ _L3_TOOLS = ["gene calling", "HMMER", "BLAST+", "MMseqs2", "MAFFT", "FastTree",
 _L4_EXTRA = ["Foldseek", "PyMOL", "US-align"]  # Foldseek: local reference structure DB
 _L5_EXTRA = ["literature search"]  # plus web_access / software_install flags
 
+# Claude Code tool names that can be withheld via ``--disallowedTools``
+# (runner/base.py build_command). S1 finding C1: the L1-L5 ladder was data-only —
+# nothing enforced "no tools" on live attempts, so the paper's headline L-contrast
+# measured prompt differences, not capability.
+_ALL_TOOLS = ["Bash", "Read", "Write", "Edit", "MultiEdit", "NotebookEdit",
+              "WebFetch", "WebSearch", "Glob", "Grep", "Task", "Agent", "TodoWrite"]
+_WEB_TOOLS = ["WebFetch", "WebSearch"]
+
+
+def disallowed_for(env: Environment) -> list[str]:
+    """Tools to withhold for this level's live attempts.
+
+    GAP: the gate is coarse — ``Bash`` cannot be split into "run Python" vs
+    "pip install", so software_install is NOT separately enforced (the paper's
+    mechanism for that split is not stated). L3/L4 keep Bash (Python is a listed
+    tool) and lose only web access.
+    """
+    if not env.tools:  # L1/L2: no tools at all
+        return list(_ALL_TOOLS)
+    if not env.web_access:  # L3/L4
+        return list(_WEB_TOOLS)
+    return []  # L5
+
+
+def materialize(env: Environment, run_dir: Path) -> Path:
+    """Copy the level's input files into the isolated per-attempt run dir.
+
+    S1 finding C1: L3+ prompts advertise loci/, gene_calls.tsv, pfam_matches.tsv,
+    structures/ — attempts ran in an empty run_dir because nothing copied the
+    files. L1/L2 copy nothing (sequences are inline in the prompt)."""
+    run_dir = Path(run_dir)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    if env.files_root is None:
+        return run_dir
+    for src in env.files:
+        dest = run_dir / Path(src).relative_to(env.files_root)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(Path(src).read_bytes())
+    return run_dir
+
 
 @dataclass
 class Environment:
     level: str
     prompt: str  # task statement + context + any inline sequences
     tools: list[str]
-    workdir: Path  # materialized input dir (empty for L1/L2)
+    workdir: Path | None  # materialized input dir (None for L1/L2: isolated run dir)
     files: list[Path] = field(default_factory=list)
+    files_root: Path | None = None  # base for relative paths in materialize()
     web_access: bool = False
     software_install: bool = False
 
@@ -65,22 +107,31 @@ def _env_files(inputs_dir: Path, include_structures: bool) -> list[Path]:
 
 
 def _inline(inputs_dir: Path, subdir: str, pattern: str, n: int = 2) -> str:
-    """Inline the first ``n`` files as text.
+    """Inline two RT-locus files as text.
 
     NOT-IN-PAPER: which two of the 96 loci the paper inlined at L1/L2 is not
-    stated; we take the first two fixtures in sorted order.
+    stated. We prefer files whose name marks them RT entries (the paper inlined
+    RT sequences, not arbitrary ORFs); otherwise the first two in sorted order.
     """
     files = sorted((inputs_dir / subdir).glob(pattern))
-    if len(files) < n:
+    rt_first = [f for f in files if _RT_NAME.search(f.name)]
+    ordered = rt_first + [f for f in files if f not in rt_first]
+    if len(ordered) < n:
         return "<synthetic placeholder sequences — run write_synthetic_inputs()>"
-    return "\n".join(f.read_text().strip() for f in files[:n])
+    return "\n".join(f.read_text().strip() for f in ordered[:n])
+
+
+_RT_NAME = re.compile(r"(?i)(^|[^a-z])rt([^a-z]|$)|reverse.?transcript")
 
 
 def build_environment(level: str, inputs_dir: Path,
                       workdir: Path | None = None) -> Environment:
     """Materialize the level's prompt/tools/files view over ``inputs_dir``."""
     inputs_dir = Path(inputs_dir)
-    workdir = Path(workdir) if workdir is not None else inputs_dir
+    # S1 finding C-minor: workdir defaulted to the FULL inputs tree, leaking
+    # structures/ even at L1/L2 and sharing one writable dir across attempts.
+    # None = the backend's isolated per-attempt run dir.
+    workdir = Path(workdir) if workdir is not None else None
     if level == "L1":
         prompt = (f"{TASK_STATEMENT}\n\n{_TASK_CONTEXT}\n\n"
                   f"RT protein sequences:\n{_inline(inputs_dir, 'proteins', '*.faa')}")
@@ -104,6 +155,7 @@ def build_environment(level: str, inputs_dir: Path,
             tools=tools,
             workdir=workdir,
             files=_env_files(inputs_dir, include_structures),
+            files_root=inputs_dir,
             web_access=level == "L5",
             software_install=level == "L5",
         )

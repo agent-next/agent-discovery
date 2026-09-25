@@ -15,9 +15,13 @@ Grading rules from the paper:
   does not contribute to the grade.
 
 The paper's judge is a language model (Mythos 5, paper Methods p.38) that sees
-only the submission and the rubric. The offline proxy here is
-``Finding.asserted`` (default True): True = asserted as a conclusion, False =
-hedged mention. The RULE is the paper's; the flag mechanism is NOT-IN-PAPER.
+only the submission and the rubric. The offline proxy here: a finding counts as
+asserted unless it matches the hedge patterns below (or an explicit
+``asserted=False`` says so). The paper-faithful submission format
+{claim, evidence, confidence} carries no asserted field, so hedging must be
+read from the text — a default-True flag credited every hedged list as a
+conclusion (S1 finding C2). The RULE is the paper's; the hedge heuristic is
+NOT-IN-PAPER.
 """
 
 from __future__ import annotations
@@ -54,7 +58,7 @@ class Finding:
     claim: str  # rubric claim id, claim wording, or free text
     evidence: str = ""
     confidence: float = 1.0
-    asserted: bool = True
+    asserted: bool | None = None  # None = derive from hedge scan of the text
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:
@@ -118,6 +122,23 @@ def default_rubric() -> Rubric:
     )
 
 
+# Paper rule: "asserted as a conclusion, not listed as one of several hedged
+# possibilities". A paper-faithful submission has no asserted field, so hedging
+# is read off the claim text (NOT-IN-PAPER heuristic; conservative word list).
+_HEDGES = (
+    "may", "might", "could be", "possibly", "perhaps", "alternative",
+    "alternatively", "one of several", "unclear", "unknown", "speculative",
+    "speculatively", "hypothesis", "hypothesized", "hypothetical", "plausible",
+    "not confirmed", "unconfirmed", "candidate",
+)
+
+
+def _is_hedged(finding: Finding) -> bool:
+    text = f"{finding.claim} {finding.evidence}".lower()
+    return any(re.search(rf"\b{re.escape(h)}\b" if " " not in h
+                         else re.escape(h), text) for h in _HEDGES)
+
+
 # NOT-IN-PAPER: the paper says a programmatic screen preselected findings but does
 # not publish its keyword list; these terms cover the rubric's topic space.
 _SCREEN_TERMS = (
@@ -137,16 +158,23 @@ def screen_findings(submission: Submission,
     rubric is definitionally relevant (NOT-IN-PAPER: the paper's keyword list
     is unpublished, so claim ids are covered explicitly).
     """
+    claim_ids = {c.id.lower() for c in rubric.claims} if rubric else set()
     selected = []
     for f in submission.findings:
         text = f"{f.claim} {f.evidence}".lower()
         tokens = set(re.findall(r"[a-z0-9'-]+", text))
+        # a rubric id embedded in free text ("nct-1 claim is supported") names
+        # the rubric — substring match, not token equality, or the finding is
+        # silently dropped and the grade decided by the screen (S1 finding C)
+        if any(cid in text for cid in claim_ids):
+            selected.append(f)
+            continue
         if any((t in text) if " " in t else (t in tokens) for t in _SCREEN_TERMS):
             selected.append(f)
             continue
-        if rubric is not None and f.claim.strip().lower() in {
-            c.id.lower() for c in rubric.claims
-        } | {c.wording.lower() for c in rubric.claims}:
+        if rubric is not None and f.claim.strip().lower() in claim_ids | {
+            c.wording.lower() for c in rubric.claims
+        }:
             selected.append(f)
     return selected
 
@@ -172,7 +200,10 @@ def _match_claim(finding: Finding, rubric: Rubric) -> Claim | None:
         if text in (c.id.lower(), c.wording.lower()):
             return c
     best, best_hits = None, 0
-    ftoks = _tokens(finding.claim)
+    # the paper's judge sees the whole finding; free-text topics often live in
+    # the evidence ("nct-1 claim is supported" + repeat-array evidence) — the
+    # old claim-only token match left such findings unmapped
+    ftoks = _tokens(f"{finding.claim} {finding.evidence}")
     for c in rubric.claims:
         hits = len(ftoks & _tokens(c.wording))
         if hits > best_hits:
@@ -194,7 +225,8 @@ def grade_submission(submission: Submission, rubric: Rubric) -> GradeResult:
     """
     asserted = {c.id: False for c in rubric.claims}
     for f in screen_findings(submission, rubric):
-        if not f.asserted:
+        is_asserted = f.asserted if f.asserted is not None else not _is_hedged(f)
+        if not is_asserted:
             continue
         claim = _match_claim(f, rubric)
         if claim is None or _is_overclaim(f, claim):
