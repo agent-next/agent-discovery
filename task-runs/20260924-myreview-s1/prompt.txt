@@ -1,0 +1,12 @@
+GOAL      S1 finder fleet: review ALL landed code of repo agent-next/agent-discovery (checked out at this cwd, branch devin/build-modules == landed main content, ref e27eace) and return findings. READ-ONLY — do not modify files, do not open PRs.
+CRITERIA  Every finding: file:line + concrete failure scenario (inputs/state -> wrong behavior) + confidence 0-1 + severity critical|major|minor|pre-existing. Citations must be exact or the finding is rejected. FIRST read REVIEW.md at repo root (always-check rules 1-9, skip lists, bars) and docs/paper-notes.md (the constants ledger).
+SCOPE     Four disjoint angles, one explore-style subagent each via run_subagent:
+          A) src/artharness core semantics: orchestrator.py (stage chain, triage, revision/stall, file_report), records.py, knowledge.py, roles.py, runner/base.py, accounting.py, tournament.py — state-machine bugs, off-by-one, fail-safe verdict handling (REVIEW.md rule 6), concurrency holes.
+          B) Science correctness: src/artharness/arrays.py + pipeline/** vs docs/paper-notes.md — parameter drift (rule 1), flag realism (rule 2), dead wiring (rule 3), window direction (rule 7), offset threading (rule 8), math errors in shuffles/IC/PWM.
+          C) benchmark/ + src/artharness/connectors/ + scripts/scan_genome.py + experiments/forensics.py — rubric logic (assertion-vs-hedge), level builders, network clients (error handling, injection into shell?), public-repo hygiene.
+          D) Tests honesty + docs: every behavior claim in README.md/REPRODUCTION.md vs actual code; tests that lock wrong behavior (rule 4); negative claims without power demos (REVIEW.md bars); provenance labels (rule 9).
+INPUTS    This repo checkout. Paper context lives in docs/paper-notes.md (trust it; it was verified against the PDF).
+VERIFY-BY Run `make check` once yourself (expect 127 passed) to prove you reviewed a green tree; paste the tail.
+OUTPUT    Four labeled finding lists (A-D), each possibly empty. End with GOAL_COMPLETE or GOAL_BLOCKED.
+
+You ARE Devin. Use run_subagent with reviewer/explore profiles for the four angles in parallel. Do not exec ccz/grok/cx/devin.
