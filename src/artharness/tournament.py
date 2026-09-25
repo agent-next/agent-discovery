@@ -84,8 +84,9 @@ def bradley_terry(wins: dict[str, int], names: list[str],
     idx = {n: i for i, n in enumerate(names)}
     p = [1.0] * len(names)
     w = [wins.get(n, 0) for n in names]
-    # ties counts: games against each opponent total = len(names) - 1
-    n_ij = len(names) - 1
+    # the round-robin plays every ORDERED pair once, so each unordered pair
+    # meets exactly twice: wins[i] + wins[j] == n_ij for every pair i != j
+    n_ij = 2
     for _ in range(iters):
         new = list(p)
         for i in range(len(names)):
@@ -96,12 +97,16 @@ def bradley_terry(wins: dict[str, int], names: list[str],
                 denom += n_ij / (max(p[i], 1e-9) + max(p[j], 1e-9))
             if denom > 0:
                 new[i] = w[i] / denom
-        delta = max(abs(a - b) for a, b in zip(p, new, strict=False))
         s = sum(new)
         if s == 0:  # no wins anywhere: uniform strengths
             return {n: 1.0 for n in names}
-        p = [max(x / s * len(names), 1e-6) for x in new]  # floor keeps zeros from
-        # zeroing the denominators of future iterations
+        # normalize BEFORE both the comparison and the update: comparing a raw
+        # iterate against a normalized one never trips any tol (old bug: the
+        # loop always ran all iters)
+        norm = [x / s * len(names) for x in new]
+        delta = max(abs(a - b) for a, b in zip(p, norm, strict=False))
+        p = [max(x, 1e-6) for x in norm]  # floor keeps zeros from zeroing the
+        # denominators of future iterations
         if delta < tol:
             break
     return {n: p[idx[n]] for n in names}
